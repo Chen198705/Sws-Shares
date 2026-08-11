@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 1 — 构建前端
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:22-alpine AS frontend-builder
+
+WORKDIR /build
+
+COPY stock-ai/front/package*.json ./
+RUN npm ci --ignore-scripts --no-audit --no-fund
+
+COPY stock-ai/front/ ./
+RUN npm run build
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2 — API 服务（Python）
+# ─────────────────────────────────────────────────────────────────────────────
+FROM python:3.11-slim AS api
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python 依赖（排除 streamlit 依赖的 app.py）
+COPY stock-ai/api/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 源码（排除 app.py / main.py 等独立入口）
+COPY stock-ai/api/ ./api/
+RUN rm -f api/app.py api/main.py api/scheduler.py
+
+# 嵌入前端构建产物
+COPY --from=frontend-builder /build/dist ./front/dist
+
+ENV OLLAMA_BASE_URL=http://192.168.110.15:8000 \
+    OLLAMA_API_KEY=sk-placeholder \
+    OLLAMA_MODEL=Qwen3.5-9B-MLX-4bit \
+    SERVER_PORT=5168
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl -sf http://localhost:${SERVER_PORT}/api/health || exit 1
+
+EXPOSE 5168
+
+CMD ["python", "-m", "uvicorn",
+     "api.server:app",
+     "--host", "0.0.0.0",
+     "--port", "5168",
+     "--log-level", "warning"]

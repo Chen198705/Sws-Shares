@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 自动操盘机器人
+# ─────────────────────────────────────────────────────────────────────────────
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app/api
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY stock-ai/api/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 源码（trading_bot.py 有 sys.path.insert，自带路径处理）
+COPY stock-ai/api/ ./api/
+RUN rm -f api/app.py api/main.py api/scheduler.py api/server.py
+
+# 共享数据卷（与 api 服务一致）
+VOLUME ["/app/reports", "/app/logs"]
+
+ENV OLLAMA_BASE_URL=http://192.168.110.15:8000 \
+    OLLAMA_API_KEY=sk-placeholder \
+    OLLAMA_MODEL=Qwen3.5-9B-MLX-4bit
+
+# 跟随系统信号优雅停止
+CMD ["python", "-u", "api/trading_bot.py"]

@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# A股 AI 量化交易系统 · Docker Compose
+# ─────────────────────────────────────────────────────────────────────────────
+# 用法:
+#   1. cp .env.example .env   # 填入 oMLX 地址和 API Key
+#   2. docker compose up -d   # 首次构建后自动启动
+#   3. docker compose logs -f  # 查看日志
+#   4. docker compose down     # 停止
+#
+# 端口:
+#   5168 — Web UI + API（直接浏览器访问）
+#
+# 外部依赖:
+#   oMLX 服务（模型推理）通过 OLLAMA_BASE_URL 连接，无需容器化。
+#   数据源：腾讯/新浪行情（容器内直连）。
+#   券商：默认模拟交易（simulation），无需真实券商。
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── Web UI + API ──────────────────────────────────────────────────────────
+  api:
+    build:
+      context: /Users/chenjianhui/Documents/个人项目开发/Stocks
+      dockerfile: /Users/chenjianhui/AI/Sws-Shares/docker/Dockerfile.api
+    container_name: shenwansan-api
+    restart: unless-stopped
+    ports:
+      - "5168:5168"
+    env_file:
+      - /Users/chenjianhui/AI/Sws-Shares/.env
+    volumes:
+      - shenwansan-data:/app/reports
+      - shenwansan-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5168/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - shenwansan-net
+
+  # ── 自动操盘机器人 ──────────────────────────────────────────────────────────
+  bot:
+    build:
+      context: /Users/chenjianhui/Documents/个人项目开发/Stocks
+      dockerfile: /Users/chenjianhui/AI/Sws-Shares/docker/Dockerfile.bot
+    container_name: shenwansan-bot
+    restart: unless-stopped
+    env_file:
+      - /Users/chenjianhui/AI/Sws-Shares/.env
+    volumes:
+      - shenwansan-data:/app/reports
+      - shenwansan-logs:/app/logs
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - shenwansan-net
+
+networks:
+  shenwansan-net:
+    driver: bridge
+
+volumes:
+  shenwansan-data:
+  shenwansan-logs:
