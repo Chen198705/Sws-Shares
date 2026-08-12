@@ -1,0 +1,28 @@
+#!/bin/bash
+LOG_DIR=~/AI/Stocks/stock-ai/api/logs
+mkdir -p $LOG_DIR
+echo "[$(date)] Shenwansan 启动中..." >> $LOG_DIR/shenwansan.log
+
+API_DIR=~/AI/Stocks/stock-ai/api
+VENV_PY=$API_DIR/.venv/bin/python
+
+cd $API_DIR
+export PYTHONPATH=$API_DIR
+
+# 停止旧进程
+pkill -f "uvicorn.*server:app" 2>/dev/null || true
+pkill -f "trading_bot.py" 2>/dev/null || true
+sleep 1
+
+# API + 前端
+nohup $VENV_PY -m uvicorn server:app --host 0.0.0.0 --port 5168 --log-level warning \
+    >> $LOG_DIR/shenwansan_api.log 2>&1 &
+echo "[$(date)] API PID=$!" >> $LOG_DIR/shenwansan.log
+
+# 交易机器人
+nohup $VENV_PY -u $API_DIR/trading_bot.py \
+    >> $LOG_DIR/shenwansan_trading.log 2>&1 &
+echo "[$(date)] Trading PID=$!" >> $LOG_DIR/shenwansan.log
+
+echo "[$(date)] 全部启动完成" >> $LOG_DIR/shenwansan.log
+open http://127.0.0.1:5168

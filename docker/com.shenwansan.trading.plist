@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.shenwansan.trading</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/chenjianhui/AI/Stocks/stock-ai/api/.venv/bin/python</string>
+        <string>-u</string>
+        <string>/Users/chenjianhui/AI/Stocks/stock-ai/api/trading_bot.py</string>
+    </array>
+    <key>WorkingDirectory</key><string>/Users/chenjianhui/AI/Stocks/stock-ai/api</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key><string>/Users/chenjianhui/AI/Stocks/stock-ai/api</string>
+    </dict>
+    <key>StandardOutPath</key><string>/Users/chenjianhui/AI/Stocks/stock-ai/api/logs/shenwansan_trading.log</string>
+    <key>StandardErrorPath</key><string>/Users/chenjianhui/AI/Stocks/stock-ai/api/logs/shenwansan_trading.log</string>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ProcessType</key><string>Background</string>
+    <key>LowPriorityIO</key><true/>
+</dict>
+</plist>
