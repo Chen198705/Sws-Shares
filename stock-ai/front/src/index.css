@@ -28,9 +28,10 @@
   }
 
   body { background: var(--bg-base); color: var(--text-primary); }
-  .card { background: var(--bg-card) e6; box-shadow: var(--shadow-card); }
+  .card { background: rgba(255,255,255,0.96); box-shadow: var(--shadow-card); }
   .card-header { background: #00000008; }
   .card-body { background: var(--bg-card); }
+  .tabs { background: #e8ebf0; border-color: #cbd5e1; }
   .sb-section { background: rgba(255,255,255,0.9); }
   .sidebar { background: linear-gradient(180deg,#f0f2f5f2 0%,#f8fafcf2 100%); }
   .right-panel { background: #f0f2f5e6; }
@@ -45,8 +46,9 @@
   .ai-badge .dot.online { box-shadow: 0 0 6px var(--green); }
   .metric-item { background: #f8fafc; border-color: #e2e8f0; }
   .ind-item { background: #f8fafc; border-color: #e2e8f0; }
-  .tab { color: var(--text-muted); }
-  .tab.active { background: var(--bg-card); }
+  .tab { color: #64748b; }
+  .tab:hover { color: #0f172a; }
+  .tab.active { background: #ffffff; color: #0f172a; box-shadow: 0 1px 4px #00000014; }
   .pos-table th { background: #f8fafc; }
   .pos-table tr:hover td { background: #eff6ff; }
   body:before { background: none; }
