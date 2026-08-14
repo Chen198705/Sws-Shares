@@ -38,8 +38,9 @@ LOG_DIR = Path(__file__).parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 DB_PATH = LOG_DIR / "trading_log.db"
 
-SCAN_INTERVAL = 30 * 60
+POSITION_CHECK_INTERVAL = 5 * 60
 MARKET_SCAN_INTERVAL = 30 * 60  # 全市场扫描间隔
+SCAN_INTERVAL = POSITION_CHECK_INTERVAL  # 兼容别名，实际使用上面的常量
 
 
 def init_db():
@@ -517,10 +518,13 @@ def main_loop(stop_event):
     params = load_params()
     print(f"自动操盘机器人启动 · 模型: {BOT_MODEL}")
     print("全市场主力资金扫描启动")
-    print(f"短线止损{params.short_stop_loss*100:.0f}%止盈{params.short_take_profit*100:.0f}%  中线止损{params.mid_stop_loss*100:.0f}%止盈{params.mid_take_profit*100:.0f}%  长线止损{params.long_stop_loss*100:.0f}%止盈{params.long_take_profit*100:.0f}% 扫描间隔 {SCAN_INTERVAL//60}分钟")
+    print(f"短线止损{params.short_stop_loss*100:.0f}%止盈{params.short_take_profit*100:.0f}%  中线止损{params.mid_stop_loss*100:.0f}%止盈{params.mid_take_profit*100:.0f}%  长线止损{params.long_stop_loss*100:.0f}%止盈{params.long_take_profit*100:.0f}%")
+    print(f"持仓检查每{POSITION_CHECK_INTERVAL//60}分钟 · 全市场选股每{MARKET_SCAN_INTERVAL//60}分钟")
     print(f"回撤止盈: 短线+{params.short_trailing_activate*100:.0f}%启动回撤{params.short_trailing_drawdown*100:.0f}%落袋  中线+{params.mid_trailing_activate*100:.0f}%启动回撤{params.mid_trailing_drawdown*100:.0f}%落袋")
     print(f"迭代触发: 满 {params.closed_trades_threshold} 笔平仓")
     Thread(target=run_scheduled_reports, args=(stop_event,), daemon=True).start()
+    scan_rounds = MARKET_SCAN_INTERVAL // POSITION_CHECK_INTERVAL
+    scan_round = 0  # 0 表示本轮执行全市场扫描
     while not stop_event.is_set():
         ts = datetime.now().strftime("%H:%M")
         if not is_trading_day():
@@ -537,31 +541,35 @@ def main_loop(stop_event):
         params = load_params()
         print("检查持仓...")
         check_positions(client, broker)
-        print("全市场扫描选股...")
-        candidates = scan_market()
-        log_scan_result(candidates)
-        
-        # 已持仓的股票不再重复买入
-        status = get_trading_status()
-        held = {pos.stock_code for pos in status.get("positions", [])}
-        
-        print("分析候选股票...")
-        for cand in candidates[:10]:  # 全量分析推荐TOP10
-            code = cand["code"]
-            if code in held:
-                print(f"  [{code}] 已在持仓，跳过")
-                continue
-            print(f"  分析候选: {cand['name']}({code}) 分数={cand['score']}")
-            run_scan(client, broker, code)
-            time.sleep(5)  # 候选股分析间隔稍长
+        if scan_round % scan_rounds == 0:
+            print("全市场扫描选股...")
+            candidates = scan_market()
+            log_scan_result(candidates)
+
+            # 已持仓的股票不再重复买入
+            status = get_trading_status()
+            held = {pos.stock_code for pos in status.get("positions", [])}
+
+            print("分析候选股票...")
+            for cand in candidates[:10]:  # 全量分析推荐TOP10
+                code = cand["code"]
+                if code in held:
+                    print(f"  [{code}] 已在持仓，跳过")
+                    continue
+                print(f"  分析候选: {cand['name']}({code}) 分数={cand['score']}")
+                run_scan(client, broker, code)
+                time.sleep(5)  # 候选股分析间隔稍长
+        else:
+            print(f"全市场扫描倒计时: {scan_rounds - scan_round % scan_rounds} 轮后执行")
+        scan_round += 1
         bal = get_trading_status()["balance"]
         print(f"\n账户: 总资产 ¥{bal['total_assets']:,.0f} 现金 ¥{bal['cash']:,.0f} 持仓 ¥{bal['market_value']:,.0f}")
         for pos in get_trading_status().get("positions", []):
             pct = (pos.current_price - pos.avg_cost) / max(pos.avg_cost or 1,1) * 100
             st = _horizon_label(getattr(pos, 'horizon', '中线'))
             print(f"  {pos.stock_code} {pos.volume}股 成本¥{pos.avg_cost:.2f} 现价¥{pos.current_price:.2f} {pct:+.1f}% [{st}]")
-        print(f"\n[{ts}] 本轮完成，等待 {SCAN_INTERVAL//60} 分钟...")
-        for _ in range(SCAN_INTERVAL):
+        print(f"\n[{ts}] 本轮完成，{POSITION_CHECK_INTERVAL//60} 分钟后检查持仓...")
+        for _ in range(POSITION_CHECK_INTERVAL):
             if stop_event.is_set():
                 break
             time.sleep(1)
