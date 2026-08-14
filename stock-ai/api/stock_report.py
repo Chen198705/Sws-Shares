@@ -15,7 +15,7 @@ DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
 def api_get(path):
     req = urllib.request.Request(f"{API}{path}", headers={"Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    with _NO_PROXY.open(req, timeout=10) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -31,7 +31,7 @@ def send_feishu(msg):
             data=data,
             headers={"Content-Type": "application/json"},
         )
-        urllib.request.urlopen(req, timeout=10)
+        _NO_PROXY.open(req, timeout=10)
         print("  [飞书] 推送成功")
         return True
     except Exception as e:

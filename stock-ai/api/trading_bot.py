@@ -435,7 +435,7 @@ def startup_warmup(client, broker):
     print('\n[启动预热] 检查网络连通性...')
     net_ok = False
     try:
-        urllib.request.urlopen('https://www.baidu.com', timeout=5)
+        urllib.request.build_opener(urllib.request.ProxyHandler({})).open('https://www.baidu.com', timeout=5)
         net_ok = True
         print('[启动预热] 网络: OK')
     except Exception:

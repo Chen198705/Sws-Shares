@@ -1,9 +1,13 @@
 """市场数据 - 腾讯行情 + Sina日K，无akshare依赖"""
-import datetime, requests, json
+import datetime, json
+import requests
 import pandas as pd
 
 TX_HEADERS = {"Referer": "https://finance.qq.com", "User-Agent": "Mozilla/5.0"}
 SINA_HEADERS = {"Referer": "https://finance.sina.com.cn", "User-Agent": "Mozilla/5.0"}
+
+_http = requests.Session()
+_http.trust_env = False  # 行情源直连，不读系统/环境代理
 
 
 def _prefix(code: str) -> str:
@@ -14,7 +18,7 @@ def get_stock_realtime(code: str) -> dict:
     """腾讯实时行情，含换手率"""
     sym = f"{_prefix(code)}{code}"
     try:
-        r = requests.get(f"https://qt.gtimg.cn/q={sym}", headers=TX_HEADERS, timeout=8)
+        r = _http.get(f"https://qt.gtimg.cn/q={sym}", headers=TX_HEADERS, timeout=8)
         raw = r.content.decode("gbk")
         raw = raw.strip()
         if '="";' in raw or raw.endswith('=""'):
@@ -49,7 +53,7 @@ def get_all_index_realtime() -> dict:
     for name, code in INDEX_CODES.items():
         sym = code
         try:
-            r = requests.get(f"https://qt.gtimg.cn/q={sym}", headers=TX_HEADERS, timeout=8)
+            r = _http.get(f"https://qt.gtimg.cn/q={sym}", headers=TX_HEADERS, timeout=8)
             raw = r.content.decode("gbk")
             raw = raw.strip()
             data = raw.split('="')[1].rstrip('";')
@@ -76,7 +80,7 @@ def get_stock_history(code: str, days: int = 60, freq: str = 'day') -> pd.DataFr
     if freq in ('week', 'month'):
         params = {'symbol': sym, 'scale': 240, 'ma': 'no', 'datalen': max(days * 5, 600)}
         try:
-            r = requests.get(url, params=params, headers=SINA_HEADERS, timeout=10)
+            r = _http.get(url, params=params, headers=SINA_HEADERS, timeout=10)
             raw = r.json()
             if not raw:
                 return pd.DataFrame()
@@ -108,7 +112,7 @@ def get_stock_history(code: str, days: int = 60, freq: str = 'day') -> pd.DataFr
     datalen = DLEN_MAP.get(freq, days + 5)
     params = {'symbol': sym, 'scale': scale, 'ma': 'no', 'datalen': datalen}
     try:
-        r = requests.get(url, params=params, headers=SINA_HEADERS, timeout=10)
+        r = _http.get(url, params=params, headers=SINA_HEADERS, timeout=10)
         data = r.json()
         if not data:
             return pd.DataFrame()
