@@ -178,21 +178,31 @@ export default function RightPanel({ onSelect = () => {} }) {
             <button className="btn btn-ghost btn-sm" onClick={() => window.location.reload()}>刷新</button>
           </div>
           <div className="card-body">
-            {isFirstLoad ? <InlineSpinner text="加载订单..." /> : orders.length > 0 ? orders.map((o, i) => (
-              <div key={i} style={{ marginBottom: '10px', paddingBottom: '10px', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '10px', background: o.direction === 'buy' ? 'rgba(244,63,94,0.15)' : 'rgba(16,185,129,0.15)', color: o.direction === 'buy' ? 'var(--red)' : 'var(--green)', border: `1px solid ${o.direction === 'buy' ? 'rgba(244,63,94,0.3)' : 'rgba(16,185,129,0.3)'}` }}>
-                    {o.direction === 'buy' ? '买' : '卖'}
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 600 }}>{o.code}</span>
-                  <span style={{ marginLeft: 'auto', fontSize: '11px', color: o.status === 'filled' ? 'var(--green)' : 'var(--text-muted)' }}>{o.status === 'filled' ? '✓ 已成交' : o.status}</span>
+            {isFirstLoad ? <InlineSpinner text="加载订单..." /> : orders.length > 0 ? orders.map((o, i) => {
+              const realizedPnl = o.direction === 'sell' && o.status === 'filled' && o.pnl != null ? Number(o.pnl) : null;
+              const pnlColor = realizedPnl != null && realizedPnl >= 0 ? 'var(--red)' : 'var(--green)';
+              return (
+                <div key={i} style={{ marginBottom: '10px', paddingBottom: '10px', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '10px', background: o.direction === 'buy' ? 'rgba(244,63,94,0.15)' : 'rgba(16,185,129,0.15)', color: o.direction === 'buy' ? 'var(--red)' : 'var(--green)', border: `1px solid ${o.direction === 'buy' ? 'rgba(244,63,94,0.3)' : 'rgba(16,185,129,0.3)'}` }}>
+                      {o.direction === 'buy' ? '买' : '卖'}
+                    </span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 600, flexShrink: 0 }}>{o.code}</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.stock_name || ''}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: '11px', color: o.status === 'filled' ? 'var(--green)' : 'var(--text-muted)', flexShrink: 0 }}>{o.status === 'filled' ? '✓ 已成交' : o.status}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                    <span>×{o.volume} @ ¥{fmt(o.price)}</span>
+                    <span>{o.time ? o.time.slice(0, 16).replace('T', ' ') : ''}</span>
+                  </div>
+                  {realizedPnl != null && (
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: pnlColor, fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+                      已实现盈亏 {realizedPnl >= 0 ? '+' : ''}{fmt(realizedPnl)}
+                    </div>
+                  )}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-                  <span>×{o.volume} @ ¥{fmt(o.price)}</span>
-                  <span>{o.time ? o.time.slice(0, 16).replace('T', ' ') : ''}</span>
-                </div>
-              </div>
-            )) : <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: '13px' }}>暂无订单记录</div>}
+              );
+            }) : <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: '13px' }}>暂无订单记录</div>}
           </div>
         </div>
       )}

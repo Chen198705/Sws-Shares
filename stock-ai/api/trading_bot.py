@@ -14,6 +14,7 @@ from market_data import (
 from ai_client import OllamaClient
 from broker_adapter import get_broker
 from trader import get_trading_status
+import stock_report
 import json as _json
 
 # Read bot model from bot_config.json
@@ -102,6 +103,49 @@ def seconds_to_open():
     return max(0, int((target - now).total_seconds()))
 
 
+def run_scheduled_reports(stop_event):
+    """交易日 11:30 / 15:05 由常驻进程内定时器发飞书报告，替代不可靠的 cron"""
+    REPORT_TIMES = [
+        ("11:30", "上午盘"),
+        ("15:05", "下午盘"),
+    ]
+    reported = set()
+    while not stop_event.is_set():
+        now = datetime.now()
+        today = now.strftime("%Y-%m-%d")
+        hm = now.strftime("%H:%M")
+        if is_trading_day():
+            for target, period in REPORT_TIMES:
+                key = f"{today}:{period}"
+                if key in reported:
+                    continue
+                if hm < target:
+                    continue
+                # 到点后允许 10 分钟补发窗口，防止进程刚好在忙或重启
+                if hm > f"{int(target[:2]):02d}:{int(target[3:]) + 10:02d}":
+                    continue
+                print(f"[定时报告] {period} 报告触发 {now:%Y-%m-%d %H:%M:%S}")
+                ok = False
+                for attempt in range(1, 4):
+                    try:
+                        ok = stock_report.report()
+                    except Exception as e:
+                        print(f"[定时报告] {period} 报告异常: {e}")
+                    if ok:
+                        break
+                    print(f"[定时报告] {period} 第 {attempt} 次失败，60 秒后重试")
+                    if stop_event.wait(60):
+                        return
+                    now = datetime.now()
+                    hm = now.strftime("%H:%M")
+                    if hm > f"{int(target[:2]):02d}:{int(target[3:]) + 10:02d}":
+                        break
+                reported.add(key)
+                print(f"[定时报告] {period} {'推送成功' if ok else '推送失败，已记入日志'}")
+        if stop_event.wait(20):
+            return
+
+
 def get_market_context():
     try:
         idx = get_all_indices()
@@ -113,6 +157,26 @@ def get_market_context():
     except:
         pass
     return "大盘数据获取失败"
+
+
+def _market_strength(mkt: str):
+    """把大盘描述解析为强弱档位，用于动态分配短/中/长线权重"""
+    m = re.search(r"([+-]?\d+(?:\.\d+)?)%", mkt or "")
+    if not m:
+        return 0.0
+    return float(m.group(1))
+
+
+def _horizon_weights(mkt: str):
+    """按大盘强弱给出短线/中线/长线参考权重，强市偏短、弱市偏长"""
+    avg = _market_strength(mkt)
+    if avg >= 0.8:
+        return "短线 50%、中线 30%、长线 20%"
+    if avg >= 0.2:
+        return "短线 40%、中线 40%、长线 20%"
+    if avg >= -0.3:
+        return "短线 30%、中线 50%、长线 20%"
+    return "短线 20%、中线 40%、长线 40%"
 
 
 def _parse_bot_direction(text: str) -> str:
@@ -199,6 +263,7 @@ def analyze_and_decide(client, broker, code):
         # 换手率单独请求
         turnover = get_turnover_rate(code)
         mkt = get_market_context()
+        weights = _horizon_weights(mkt)
 
         if client.is_alive():
             params = load_params()
@@ -211,6 +276,7 @@ MACD金叉={ind['MACD金叉']} MACD状态={ind['MACD状态']}
 K={ind['K']:.1f} D={ind['D']:.1f} J={ind['J']:.1f} KDJ金叉={ind['KDJ金叉']} KDJ状态={ind['KDJ状态']}
 量比={ind['量比']:.2f} 成交量状态={ind['成交量状态']} 换手率={turnover:.2f}%
 大盘：{mkt}
+当前大盘环境建议周期权重：{weights}，请结合个股形态最终确定策略类型
 总资产约100万，短线止损{params.short_stop_loss*100:.0f}%止盈{params.short_take_profit*100:.0f}%，中线止损{params.mid_stop_loss*100:.0f}%止盈{params.mid_take_profit*100:.0f}%，长线止损{params.long_stop_loss*100:.0f}%止盈{params.long_take_profit*100:.0f}%
 
 请严格判断，给出：
@@ -232,13 +298,17 @@ K={ind['K']:.1f} D={ind['D']:.1f} J={ind['J']:.1f} KDJ金叉={ind['KDJ金叉']} 
         else:
             return None
 
-        text = analysis.lower()
-        # 解析策略类型
+        # 解析策略类型：优先读“策略类型：短线/中线/长线”，再按关键词兜底
         stype = "中线"
-        if "长线" in analysis and ("建议长线" in text or "长线持有" in text or "长线布局" in text):
-            stype = "长线"
-        elif "短线" in analysis and ("建议短线" in text or "短线操作" in text or "快进快出" in text):
-            stype = "短线"
+        m = re.search(r"策略类型\s*[：:]\s*(短线|中线|长线)", analysis or "")
+        if m:
+            stype = m.group(1)
+        else:
+            text = analysis.lower()
+            if "长线" in analysis and ("建议长线" in text or "长线持有" in text or "长线布局" in text):
+                stype = "长线"
+            elif "短线" in analysis and ("建议短线" in text or "短线操作" in text or "快进快出" in text):
+                stype = "短线"
 
         action = _parse_bot_direction(analysis)
         if action == "buy":
@@ -257,7 +327,7 @@ K={ind['K']:.1f} D={ind['D']:.1f} J={ind['J']:.1f} KDJ金叉={ind['KDJ金叉']} 
             "action": action, "position_ratio": pos_pct,
             "price": stock["最新价"], "analysis": analysis,
             "market_context": mkt, "entry_indicators": ei,
-            "strategy_type": stype,
+            "strategy_type": stype, "horizon": {"短线": "short", "中线": "medium", "长线": "long"}[stype],
         }
     except Exception as e:
         print(f"  [{code}] 分析失败: {e}")
@@ -269,6 +339,7 @@ def execute_decision(decision, broker):
     action = decision["action"]
     price  = decision["price"]
     stype  = decision.get("strategy_type", "中线")
+    horizon = decision.get("horizon", {"短线": "short", "中线": "medium", "长线": "long"}.get(stype, "medium"))
     params = load_params()
     bal    = broker.get_balance()
     total  = bal["total_assets"]
@@ -283,7 +354,7 @@ def execute_decision(decision, broker):
             print(f"  [{code}] 买入金额过小")
             return
         try:
-            order = broker.buy(code, vol, price)
+            order = broker.buy(code, vol, price, horizon=horizon)
             if order.status == "filled":
                 tid = log_trade(code, "buy", order.filled_price, vol, reason=f"AI建仓[{stype}]", strategy_type=stype)
                 log_attribution(tid, ai_reason=decision.get("analysis","")[:200],
@@ -384,6 +455,7 @@ def main_loop(stop_event):
     print("全市场主力资金扫描启动")
     print(f"短线止损{params.short_stop_loss*100:.0f}%止盈{params.short_take_profit*100:.0f}%  中线止损{params.mid_stop_loss*100:.0f}%止盈{params.mid_take_profit*100:.0f}%  长线止损{params.long_stop_loss*100:.0f}%止盈{params.long_take_profit*100:.0f}% 扫描间隔 {SCAN_INTERVAL//60}分钟")
     print(f"迭代触发: 满 {params.closed_trades_threshold} 笔平仓")
+    Thread(target=run_scheduled_reports, args=(stop_event,), daemon=True).start()
     while not stop_event.is_set():
         ts = datetime.now().strftime("%H:%M")
         if not is_trading_day():

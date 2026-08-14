@@ -15,5 +15,6 @@ dist/
 **/dist/
 api/logs/
 api/reports/*.db
+**/api/bin/
 *.pyc
 .pytest_cache/

@@ -32,6 +32,7 @@ class Order:
     filled_at: Optional[str] = None
     filled_price: Optional[float] = None
     stock_name: str = ""
+    pnl: float = 0.0
 
 
 @dataclass

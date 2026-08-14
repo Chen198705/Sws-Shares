@@ -154,6 +154,9 @@ async def portfolio(request):
             {"id": o.order_id, "code": o.stock_code, "direction": o.direction,
              "price": o.price, "volume": o.volume, "status": o.status,
              "filled_price": getattr(o, "filled_price", o.price),
+             "stock_name": getattr(o, "stock_name", ""),
+             "pnl": getattr(o, "pnl", 0),
+             "horizon": getattr(o, "horizon", "medium"),
              "time": str(o.created_at) if o.created_at else ""}
             for o in status.get("recent_orders", [])
         ]
@@ -168,6 +171,9 @@ async def orders(request):
             {"id": o.order_id, "code": o.stock_code, "direction": o.direction,
              "price": o.price, "volume": o.volume, "status": o.status,
              "filled_price": getattr(o, "filled_price", o.price),
+             "stock_name": getattr(o, "stock_name", ""),
+             "pnl": getattr(o, "pnl", 0),
+             "horizon": getattr(o, "horizon", "medium"),
              "time": str(o.created_at) if o.created_at else ""}
             for o in broker.get_orders(20)
         ]})

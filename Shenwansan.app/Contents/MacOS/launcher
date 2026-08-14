@@ -1,13 +1,19 @@
 #!/bin/bash
-LOG_DIR=~/AI/Stocks/stock-ai/api/logs
+LOG_DIR=~/AI/Sws-Shares/stock-ai/api/logs
 mkdir -p $LOG_DIR
 echo "[$(date)] Shenwansan 启动中..." >> $LOG_DIR/shenwansan.log
 
-API_DIR=~/AI/Stocks/stock-ai/api
-VENV_PY=$API_DIR/.venv/bin/python
+API_DIR=~/AI/Sws-Shares/stock-ai/api
+BIN_API=$API_DIR/bin/shenwansan-api
+BIN_BOT=$API_DIR/bin/shenwansan-bot
+
+if [[ ! -x "$BIN_API" || ! -x "$BIN_BOT" ]]; then
+  echo "[$(date)] 缺少进程名二进制，先执行 stock-ai/scripts/make_procname_bins.sh" >> $LOG_DIR/shenwansan.log
+  exit 1
+fi
 
 cd $API_DIR
-export PYTHONPATH=$API_DIR
+export PYTHONPATH=$API_DIR/.venv/lib/python3.9/site-packages:$API_DIR
 
 # 停止旧进程
 pkill -f "uvicorn.*server:app" 2>/dev/null || true
@@ -15,12 +21,12 @@ pkill -f "trading_bot.py" 2>/dev/null || true
 sleep 1
 
 # API + 前端
-nohup $VENV_PY -m uvicorn server:app --host 0.0.0.0 --port 5168 --log-level warning \
+nohup $BIN_API -m uvicorn server:app --host 0.0.0.0 --port 5168 --log-level warning \
     >> $LOG_DIR/shenwansan_api.log 2>&1 &
 echo "[$(date)] API PID=$!" >> $LOG_DIR/shenwansan.log
 
 # 交易机器人
-nohup $VENV_PY -u $API_DIR/trading_bot.py \
+nohup $BIN_BOT -u $API_DIR/trading_bot.py \
     >> $LOG_DIR/shenwansan_trading.log 2>&1 &
 echo "[$(date)] Trading PID=$!" >> $LOG_DIR/shenwansan.log
 

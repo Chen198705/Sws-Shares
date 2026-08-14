@@ -3,6 +3,10 @@ import json
 import os
 import urllib.request
 from datetime import datetime
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent / ".env")
 
 API = "http://127.0.0.1:5168"
 FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK", "")
@@ -18,7 +22,7 @@ def api_get(path):
 def send_feishu(msg):
     if not FEISHU_WEBHOOK:
         print("  [飞书] 未配置 webhook，跳过")
-        return
+        return False
     try:
         payload = {"msg_type": "text", "content": {"text": msg}}
         data = json.dumps(payload).encode("utf-8")
@@ -29,8 +33,10 @@ def send_feishu(msg):
         )
         urllib.request.urlopen(req, timeout=10)
         print("  [飞书] 推送成功")
+        return True
     except Exception as e:
         print(f"  [飞书] 推送失败: {e}")
+        return False
 
 
 def fmt_money(v):
@@ -61,8 +67,7 @@ def report():
     except Exception as e:
         msg = f"{header}\n\nAPI 获取失败: {e}"
         print(msg)
-        send_feishu(msg)
-        return
+        return send_feishu(msg)
 
     balance = portfolio.get("balance", {})
     positions = portfolio.get("positions", [])
@@ -107,8 +112,9 @@ def report():
     print("=" * 30)
     if DRY_RUN:
         print("  [dry-run] 跳过飞书推送")
+        return True
     else:
-        send_feishu(msg)
+        return send_feishu(msg)
 
 
 if __name__ == "__main__":

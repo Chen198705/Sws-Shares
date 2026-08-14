@@ -20,7 +20,7 @@ services:
   # ── Web UI + API ──────────────────────────────────────────────────────────
   api:
     build:
-      context: /Users/chenjianhui/Documents/个人项目开发/Stocks
+      context: /Users/chenjianhui/AI/Sws-Shares
       dockerfile: /Users/chenjianhui/AI/Sws-Shares/docker/Dockerfile.api
     container_name: shenwansan-api
     restart: unless-stopped
@@ -43,7 +43,7 @@ services:
   # ── 自动操盘机器人 ──────────────────────────────────────────────────────────
   bot:
     build:
-      context: /Users/chenjianhui/Documents/个人项目开发/Stocks
+      context: /Users/chenjianhui/AI/Sws-Shares
       dockerfile: /Users/chenjianhui/AI/Sws-Shares/docker/Dockerfile.bot
     container_name: shenwansan-bot
     restart: unless-stopped

@@ -33,7 +33,8 @@ def _get_db() -> sqlite3.Connection:
             horizon TEXT DEFAULT 'medium',
             created_at TEXT NOT NULL,
             filled_at TEXT,
-            filled_price REAL
+            filled_price REAL,
+            pnl REAL DEFAULT 0
         )
     """)
     conn.execute("""
@@ -191,7 +192,7 @@ class SimulationBroker(BrokerAdapter):
         exec_price = price if price else stock.get("最新价", 0.0)
 
         row = self._conn.execute(
-            "SELECT volume FROM positions WHERE stock_code = ?", (stock_code,)
+            "SELECT volume, avg_cost FROM positions WHERE stock_code = ?", (stock_code,)
         ).fetchone()
         if not row or row[0] < volume:
             order = Order(
@@ -208,6 +209,7 @@ class SimulationBroker(BrokerAdapter):
             self._save_order(order)
             return order
 
+        realized_pnl = (exec_price - row[1]) * volume
         order = Order(
             order_id=str(uuid.uuid4())[:8].upper(),
             stock_code=stock_code,
@@ -220,6 +222,7 @@ class SimulationBroker(BrokerAdapter):
             created_at=datetime.now().isoformat(),
             filled_at=datetime.now().isoformat(),
             filled_price=exec_price,
+            pnl=realized_pnl,
         )
 
         try:
@@ -238,12 +241,12 @@ class SimulationBroker(BrokerAdapter):
     def _save_order(self, order: Order):
         self._conn.execute("""
             INSERT OR REPLACE INTO orders
-            (order_id, stock_code, direction, price, volume, status, horizon, created_at, filled_at, filled_price, stock_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (order_id, stock_code, direction, price, volume, status, horizon, created_at, filled_at, filled_price, stock_name, pnl)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (order.order_id, order.stock_code, order.direction,
               order.price, order.volume, order.status, getattr(order, "horizon", "medium"),
               order.created_at, order.filled_at, order.filled_price,
-              getattr(order, "stock_name", "")))
+              getattr(order, "stock_name", ""), getattr(order, "pnl", 0)))
         self._conn.commit()
 
     def get_positions(self) -> list[Position]:
@@ -272,7 +275,7 @@ class SimulationBroker(BrokerAdapter):
 
     def get_orders(self, limit: int = 50) -> list[Order]:
         rows = self._conn.execute(
-            "SELECT order_id, stock_code, direction, price, volume, status, horizon, created_at, filled_at, filled_price, stock_name "
+            "SELECT order_id, stock_code, direction, price, volume, status, horizon, created_at, filled_at, filled_price, stock_name, pnl "
             "FROM orders ORDER BY created_at DESC LIMIT ?", (limit,)
         ).fetchall()
         return [Order(
@@ -281,7 +284,8 @@ class SimulationBroker(BrokerAdapter):
             horizon=r[6] if len(r) > 6 else "medium",
             created_at=r[7] if len(r) > 7 else r[6], filled_at=r[8] if len(r) > 8 else (r[7] if len(r) > 7 else None),
             filled_price=r[9] if len(r) > 9 else (r[8] if len(r) > 8 else None),
-            stock_name=r[10] if len(r) > 10 else ""
+            stock_name=r[10] if len(r) > 10 else "",
+            pnl=r[11] if len(r) > 11 else 0
         ) for r in rows]
 
     def cancel_order(self, order_id: str) -> bool:
@@ -321,6 +325,10 @@ def _migrate():
         conn.execute("ALTER TABLE positions ADD COLUMN horizon TEXT DEFAULT 'medium'")
     except Exception:
         pass
+    try:
+        conn.execute("ALTER TABLE orders ADD COLUMN pnl REAL DEFAULT 0")
+    except Exception:
+        pass  # column already exists
     conn.commit()
     conn.close()
 
