@@ -169,14 +169,43 @@ def _market_strength(mkt: str):
 
 def _horizon_weights(mkt: str):
     """按大盘强弱给出短线/中线/长线参考权重，强市偏短、弱市偏长"""
+    return {
+        "强": "短线 50%、中线 30%、长线 20%",
+        "偏强": "短线 40%、中线 40%、长线 20%",
+        "震荡": "短线 30%、中线 50%、长线 20%",
+        "偏弱": "短线 20%、中线 40%、长线 40%",
+    }[_market_regime(mkt)]
+
+
+def _market_regime(mkt: str):
     avg = _market_strength(mkt)
     if avg >= 0.8:
-        return "短线 50%、中线 30%、长线 20%"
+        return "强"
     if avg >= 0.2:
-        return "短线 40%、中线 40%、长线 20%"
+        return "偏强"
     if avg >= -0.3:
-        return "短线 30%、中线 50%、长线 20%"
-    return "短线 20%、中线 40%、长线 40%"
+        return "震荡"
+    return "偏弱"
+
+
+# 每个档位 10 个周期槽位，轮转分配确保短/中/长线都能出现
+_HORIZON_BUCKETS = {
+    "强": ["短线", "中线", "短线", "长线", "短线", "中线", "短线", "中线", "长线", "短线"],
+    "偏强": ["短线", "中线", "短线", "中线", "长线", "短线", "中线", "长线", "短线", "中线"],
+    "震荡": ["中线", "短线", "中线", "中线", "长线", "中线", "短线", "中线", "长线", "中线"],
+    "偏弱": ["长线", "中线", "短线", "长线", "中线", "长线", "中线", "长线", "短线", "中线"],
+}
+_horizon_cursor = 0
+
+
+def _allocate_horizon(mkt: str):
+    """按大盘档位轮转分配周期，避免模型清一色输出中线"""
+    global _horizon_cursor
+    regime = _market_regime(mkt)
+    buckets = _HORIZON_BUCKETS[regime]
+    label = buckets[_horizon_cursor % len(buckets)]
+    _horizon_cursor += 1
+    return label, regime, _horizon_weights(mkt)
 
 
 def _parse_bot_direction(text: str) -> str:
@@ -263,7 +292,8 @@ def analyze_and_decide(client, broker, code):
         # 换手率单独请求
         turnover = get_turnover_rate(code)
         mkt = get_market_context()
-        weights = _horizon_weights(mkt)
+        horizon_label, regime, weights = _allocate_horizon(mkt)
+        print(f"  [{code}] 周期分配: {horizon_label}（大盘{regime}，权重 {weights}）")
 
         if client.is_alive():
             params = load_params()
@@ -276,11 +306,12 @@ MACD金叉={ind['MACD金叉']} MACD状态={ind['MACD状态']}
 K={ind['K']:.1f} D={ind['D']:.1f} J={ind['J']:.1f} KDJ金叉={ind['KDJ金叉']} KDJ状态={ind['KDJ状态']}
 量比={ind['量比']:.2f} 成交量状态={ind['成交量状态']} 换手率={turnover:.2f}%
 大盘：{mkt}
-当前大盘环境建议周期权重：{weights}，请结合个股形态最终确定策略类型
+当前大盘环境：{regime}（{weights}）
+本只候选股的最终策略类型必须为：{horizon_label}
 总资产约100万，短线止损{params.short_stop_loss*100:.0f}%止盈{params.short_take_profit*100:.0f}%，中线止损{params.mid_stop_loss*100:.0f}%止盈{params.mid_take_profit*100:.0f}%，长线止损{params.long_stop_loss*100:.0f}%止盈{params.long_take_profit*100:.0f}%
 
 请严格判断，给出：
-1. 策略类型（短线/中线/长线）：根据RSI/KDJ/均线/成交量综合判断
+1. 策略类型：直接输出“{horizon_label}”，不要输出其他周期
 2. 操作方向（买入/卖出/观望）
 3. 仓位（总资产百分比，如20%）
 4. 止损/止盈价（根据策略类型）
@@ -298,17 +329,8 @@ K={ind['K']:.1f} D={ind['D']:.1f} J={ind['J']:.1f} KDJ金叉={ind['KDJ金叉']} 
         else:
             return None
 
-        # 解析策略类型：优先读“策略类型：短线/中线/长线”，再按关键词兜底
-        stype = "中线"
-        m = re.search(r"策略类型\s*[：:]\s*(短线|中线|长线)", analysis or "")
-        if m:
-            stype = m.group(1)
-        else:
-            text = analysis.lower()
-            if "长线" in analysis and ("建议长线" in text or "长线持有" in text or "长线布局" in text):
-                stype = "长线"
-            elif "短线" in analysis and ("建议短线" in text or "短线操作" in text or "快进快出" in text):
-                stype = "短线"
+        # 周期由大盘环境分配，模型必须遵循，避免清一色输出中线
+        stype = horizon_label
 
         action = _parse_bot_direction(analysis)
         if action == "buy":

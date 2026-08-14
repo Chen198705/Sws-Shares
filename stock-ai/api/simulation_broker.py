@@ -330,6 +330,37 @@ def _migrate():
     except Exception:
         pass  # column already exists
     conn.commit()
+    _backfill_order_pnl(conn)
     conn.close()
+
+
+def _backfill_order_pnl(conn):
+    """用 FIFO 对历史已成交买卖单回填已实现盈亏，幂等可重复执行"""
+    rows = conn.execute(
+        "SELECT order_id, stock_code, direction, price, volume, filled_at, created_at, filled_price "
+        "FROM orders WHERE status='filled' "
+        "ORDER BY COALESCE(filled_at, created_at), order_id"
+    ).fetchall()
+    lots = {}
+    for order_id, code, direction, price, volume, filled_at, created_at, filled_price in rows:
+        exec_price = filled_price if filled_price is not None else price
+        if direction == "buy":
+            lots.setdefault(code, []).append([volume, exec_price])
+        elif direction == "sell":
+            remaining = volume
+            total_pnl = 0.0
+            bucket = lots.get(code, [])
+            while remaining > 0 and bucket:
+                qty, cost = bucket[0]
+                take = min(qty, remaining)
+                total_pnl += (exec_price - cost) * take
+                remaining -= take
+                if take >= qty:
+                    bucket.pop(0)
+                else:
+                    bucket[0][0] -= take
+            conn.execute("UPDATE orders SET pnl=? WHERE order_id=?", (round(total_pnl, 2), order_id))
+    conn.commit()
+
 
 _migrate()
