@@ -462,6 +462,24 @@ def run_scan(client, broker, code):
 
 
 
+def get_recommend_top():
+    """最近一次全市场扫描的推荐第1名，无数据时回退到贵州茅台"""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(str(DB_PATH))
+        row = conn.execute(
+            "SELECT code, name FROM market_scan_log "
+            "WHERE ts = (SELECT MAX(ts) FROM market_scan_log) "
+            "ORDER BY score DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        if row and row[0]:
+            return row[0], row[1] or row[0]
+    except Exception:
+        pass
+    return '600519', '贵州茅台'
+
+
 def startup_warmup(client, broker):
     """启动时检查网络和模型，完成后做默认股预分析"""
     import urllib.request
@@ -482,9 +500,9 @@ def startup_warmup(client, broker):
         print(f'[启动预热] 模型 ({BOT_MODEL}): 离线 (跳过预热)')
 
     if net_ok and model_ok:
-        # 选一只代表性股票做预热（白酒龙头茅台）
-        warmup_code = '600519'
-        print(f'[启动预热] 预热分析 {warmup_code}...')
+        # 默认对最近一次推荐股第1名做预热
+        warmup_code, warmup_name = get_recommend_top()
+        print(f'[启动预热] 预热分析 {warmup_name}({warmup_code})...')
         try:
             from market_data import get_stock_realtime, get_stock_history, calc_indicators
             stock = get_stock_realtime(warmup_code)
