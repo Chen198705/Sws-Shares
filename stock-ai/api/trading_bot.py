@@ -246,6 +246,18 @@ def _horizon_label(value) -> str:
     return _HORIZON_LABELS.get(str(value).strip().lower(), value)
 
 
+_trailing_peak: dict = {}
+
+
+def _trailing_hit(stype: str, params, peak: float, pnl_pct: float) -> bool:
+    """回撤止盈：短线/中线到达激活线后，从峰值回撤超过阈值即落袋；长线不启用"""
+    if stype == "短线":
+        return peak >= params.short_trailing_activate and pnl_pct <= peak - params.short_trailing_drawdown
+    if stype == "中线":
+        return peak >= params.mid_trailing_activate and pnl_pct <= peak - params.mid_trailing_drawdown
+    return False
+
+
 def check_positions(client, broker):
     params = load_params()
     status = get_trading_status()
@@ -260,6 +272,11 @@ def check_positions(client, broker):
             continue
         pnl_pct = (cur_p - entry) / entry
         sl, tp = get_stop_take(stype, params)
+        peak = _trailing_peak.get(code, pnl_pct)
+        if pnl_pct > peak:
+            peak = pnl_pct
+            _trailing_peak[code] = peak
+        trailing = _trailing_hit(stype, params, peak, pnl_pct)
         if pnl_pct <= sl:
             reason = f"触发止损（{pnl_pct*100:.1f}%）[{stype}]"
             try:
@@ -269,6 +286,7 @@ def check_positions(client, broker):
                     tid = log_trade(code, "sell", order.filled_price, vol, pnl, reason, stype)
                     close_attribution(tid, pnl, reason)
                     print(f"  [{code}] {reason}，盈亏 ¥{pnl:+.2f}")
+                    _trailing_peak.pop(code, None)
                     action_taken = True
             except Exception as e:
                 print(f"  [{code}] 止损失败: {e}")
@@ -281,9 +299,23 @@ def check_positions(client, broker):
                     tid = log_trade(code, "sell", order.filled_price, vol, pnl, reason, stype)
                     close_attribution(tid, pnl, reason)
                     print(f"  [{code}] {reason}，盈亏 ¥{pnl:+.2f}")
+                    _trailing_peak.pop(code, None)
                     action_taken = True
             except Exception as e:
                 print(f"  [{code}] 止盈失败: {e}")
+        elif trailing:
+            reason = f"触发回撤止盈（峰值+{peak*100:.1f}%，现+{pnl_pct*100:.1f}%）[{stype}]"
+            try:
+                order = broker.sell(code, vol, cur_p)
+                if order.status == "filled":
+                    pnl = (order.filled_price - entry) * vol
+                    tid = log_trade(code, "sell", order.filled_price, vol, pnl, reason, stype)
+                    close_attribution(tid, pnl, reason)
+                    print(f"  [{code}] {reason}，盈亏 ¥{pnl:+.2f}")
+                    _trailing_peak.pop(code, None)
+                    action_taken = True
+            except Exception as e:
+                print(f"  [{code}] 回撤止盈失败: {e}")
         else:
             print(f"  [{code}] 持仓[{stype}] 成本¥{entry:.2f} 现价¥{cur_p:.2f} {pnl_pct*100:+.1f}%")
     if action_taken:
@@ -486,6 +518,7 @@ def main_loop(stop_event):
     print(f"自动操盘机器人启动 · 模型: {BOT_MODEL}")
     print("全市场主力资金扫描启动")
     print(f"短线止损{params.short_stop_loss*100:.0f}%止盈{params.short_take_profit*100:.0f}%  中线止损{params.mid_stop_loss*100:.0f}%止盈{params.mid_take_profit*100:.0f}%  长线止损{params.long_stop_loss*100:.0f}%止盈{params.long_take_profit*100:.0f}% 扫描间隔 {SCAN_INTERVAL//60}分钟")
+    print(f"回撤止盈: 短线+{params.short_trailing_activate*100:.0f}%启动回撤{params.short_trailing_drawdown*100:.0f}%落袋  中线+{params.mid_trailing_activate*100:.0f}%启动回撤{params.mid_trailing_drawdown*100:.0f}%落袋")
     print(f"迭代触发: 满 {params.closed_trades_threshold} 笔平仓")
     Thread(target=run_scheduled_reports, args=(stop_event,), daemon=True).start()
     while not stop_event.is_set():

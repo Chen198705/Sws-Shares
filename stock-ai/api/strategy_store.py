@@ -29,6 +29,11 @@ class StrategyParams:
     mid_take_profit: float = 0.15
     long_stop_loss: float = -0.10
     long_take_profit: float = 0.25
+    # ---- 回撤止盈：短线/中线到达激活线后，从峰值回撤超过阈值即落袋 ----
+    short_trailing_activate: float = 0.05
+    short_trailing_drawdown: float = 0.03
+    mid_trailing_activate: float = 0.06
+    mid_trailing_drawdown: float = 0.03
 
 
 def _conn():
@@ -75,6 +80,8 @@ def load_params() -> StrategyParams:
         "short_stop_loss", "short_take_profit",
         "mid_stop_loss", "mid_take_profit",
         "long_stop_loss", "long_take_profit",
+        "short_trailing_activate", "short_trailing_drawdown",
+        "mid_trailing_activate", "mid_trailing_drawdown",
     }
     int_keys = {"min_confidence", "closed_trades_threshold", "iteration"}
     for key, val in rows:
