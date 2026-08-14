@@ -236,6 +236,16 @@ def trigger_iteration():
         Thread(target=run_iteration, daemon=True).start()
 
 
+_HORIZON_LABELS = {"short": "短线", "medium": "中线", "long": "长线"}
+
+
+def _horizon_label(value) -> str:
+    """把 broker 的英文周期名转成中文，中文原样返回"""
+    if not value:
+        return "中线"
+    return _HORIZON_LABELS.get(str(value).strip().lower(), value)
+
+
 def check_positions(client, broker):
     params = load_params()
     status = get_trading_status()
@@ -245,7 +255,7 @@ def check_positions(client, broker):
         entry = pos.avg_cost or 0
         cur_p = pos.current_price or 0
         vol   = pos.volume or 0
-        stype = getattr(pos, 'horizon', '中线')
+        stype = _horizon_label(getattr(pos, 'horizon', '中线'))
         if entry <= 0 or cur_p <= 0:
             continue
         pnl_pct = (cur_p - entry) / entry
@@ -515,7 +525,7 @@ def main_loop(stop_event):
         print(f"\n账户: 总资产 ¥{bal['total_assets']:,.0f} 现金 ¥{bal['cash']:,.0f} 持仓 ¥{bal['market_value']:,.0f}")
         for pos in get_trading_status().get("positions", []):
             pct = (pos.current_price - pos.avg_cost) / max(pos.avg_cost or 1,1) * 100
-            st = getattr(pos, 'horizon', '中线')
+            st = _horizon_label(getattr(pos, 'horizon', '中线'))
             print(f"  {pos.stock_code} {pos.volume}股 成本¥{pos.avg_cost:.2f} 现价¥{pos.current_price:.2f} {pct:+.1f}% [{st}]")
         print(f"\n[{ts}] 本轮完成，等待 {SCAN_INTERVAL//60} 分钟...")
         for _ in range(SCAN_INTERVAL):

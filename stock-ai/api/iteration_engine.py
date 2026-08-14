@@ -69,6 +69,7 @@ def build_review_prompt():
    - long_stop_loss / long_take_profit: 长线止损/止盈（建议 -8%/+-10%、+20%/+30%）
    - min_confidence: 最小买入置信度（当前60）
    - closed_trades_threshold: 触发迭代需积累的平仓笔数
+   止损必须是负数，止盈必须是正数；可用小数（-0.03 表示 -3%）或整数百分比（-3）
 3. 给出300字以内的策略改进总结
 
 请用中文回答，先总结分策略分析，再用 ```json 包裹参数。"""
@@ -108,6 +109,22 @@ def run_iteration():
         params.min_confidence = int(delta["min_confidence"])
     if "closed_trades_threshold" in delta:
         params.closed_trades_threshold = int(delta["closed_trades_threshold"])
+
+    for key in ("short_stop_loss", "short_take_profit", "mid_stop_loss",
+                "mid_take_profit", "long_stop_loss", "long_take_profit"):
+        if key not in delta:
+            continue
+        try:
+            val = float(delta[key])
+        except (TypeError, ValueError):
+            continue
+        if abs(val) > 1:
+            val /= 100  # 兼容模型直接输出 -3 / +8 这类百分比整数
+        if key.endswith("_stop_loss") and val >= 0:
+            continue
+        if key.endswith("_take_profit") and val <= 0:
+            continue
+        setattr(params, key, val)
     save_params(params)
 
     log_iteration(params.iteration, len(get_closed_trades_for_review()),

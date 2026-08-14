@@ -171,14 +171,22 @@ def should_iterate() -> tuple[bool, int]:
     return cnt >= p.closed_trades_threshold, cnt
 
 
+_HORIZON_ALIASES = {
+    "short": "短线",
+    "medium": "中线",
+    "long": "长线",
+}
+
+
 def get_stop_take(strategy_type: str, params: StrategyParams) -> tuple[float, float]:
-    """根据策略类型从 params 取止损止盈，支持 per-strategy 字段"""
+    """根据策略类型从 params 取止损止盈，兼容中文/英文周期名"""
+    label = _HORIZON_ALIASES.get((strategy_type or "").strip().lower(), strategy_type or "中线")
     mapping = {
         "短线": (params.short_stop_loss, params.short_take_profit),
         "中线": (params.mid_stop_loss,   params.mid_take_profit),
         "长线": (params.long_stop_loss,  params.long_take_profit),
     }
-    return mapping.get(strategy_type, (params.stop_loss_pct, params.take_profit_pct))
+    return mapping.get(label, (params.stop_loss_pct, params.take_profit_pct))
 
 
 if __name__ == "__main__":
