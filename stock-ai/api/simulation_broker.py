@@ -209,6 +209,29 @@ class SimulationBroker(BrokerAdapter):
             self._save_order(order)
             return order
 
+        # A股 T+1：当日买入部分不可卖，可卖量 = 今日之前累计买入 - 已卖出
+        today = datetime.now().strftime("%Y-%m-%d")
+        bought_before = self._conn.execute(
+            "SELECT COALESCE(SUM(volume),0) FROM orders WHERE stock_code=? AND direction='buy' AND status='filled' AND substr(filled_at,1,10) < ?",
+            (stock_code, today)).fetchone()[0] or 0
+        sold_all = self._conn.execute(
+            "SELECT COALESCE(SUM(volume),0) FROM orders WHERE stock_code=? AND direction='sell' AND status='filled'",
+            (stock_code,)).fetchone()[0] or 0
+        if bought_before - sold_all < volume:
+            order = Order(
+                order_id=str(uuid.uuid4())[:8].upper(),
+                stock_code=stock_code,
+                stock_name=stock_name,
+                direction="sell",
+                price=exec_price,
+                volume=volume,
+                status="rejected",
+                horizon=horizon,
+                created_at=datetime.now().isoformat(),
+            )
+            self._save_order(order)
+            return order
+
         realized_pnl = (exec_price - row[1]) * volume
         order = Order(
             order_id=str(uuid.uuid4())[:8].upper(),
