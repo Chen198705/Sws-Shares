@@ -331,7 +331,27 @@ def _migrate():
         pass  # column already exists
     conn.commit()
     _backfill_order_pnl(conn)
+    _backfill_stock_names(conn)
     conn.close()
+
+
+def _backfill_stock_names(conn):
+    """回填早期订单缺失的股票名称（orders 表加列前的历史数据）"""
+    names = {}
+    for code, name in conn.execute(
+        "SELECT stock_code, stock_name FROM positions WHERE stock_name != ''"
+    ):
+        names.setdefault(code, name)
+    for code, name in conn.execute(
+        "SELECT stock_code, stock_name FROM orders WHERE stock_name != ''"
+    ):
+        names.setdefault(code, name)
+    for code, name in names.items():
+        conn.execute(
+            "UPDATE orders SET stock_name=? WHERE stock_code=? AND (stock_name='' OR stock_name IS NULL)",
+            (name, code),
+        )
+    conn.commit()
 
 
 def _backfill_order_pnl(conn):
