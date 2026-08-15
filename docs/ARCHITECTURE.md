@@ -124,14 +124,18 @@
 | G2 样本外 | 一次性测试集 + 子周期稳健 + 参数敏感性 | BACKTEST.md |
 | G3 实盘门 | L2/L3 + 仓位上限 + 压力测试 | RISK.md |
 
-**现状**：信号层已越过 G3 运行（模拟盘），但研究层还停在 G0。这不冲突，但任何"新结论"都必须从 G0 重新走。
+**现状**：信号层已越过 G3 运行（模拟盘）；研究层已完成 P0 管线验证
+（EXP-20260815-001），首次 `mom_6_1` 样本外结论为不通过，已诚实登记到
+`research/experiments/EXPERIMENTS.md`、`KNOWLEDGE_BASE.md`、`FAILURES.md`。
+任何"新结论"仍必须从 G0 重新走。
 
 ## 6. 当前差距与实施路线
 
 ### P0（研究层启动，不改现有信号层）
-- 搭 `research/` 数据管线：Tushare/AKShare 全 A 日线 + 质量校验
-- 跑 BL1-BL4（随机游走/历史均值/等权/简单动量）
-- 落地第一个因子 `mom_6_1` 的 EXP 实验记录
+- ✅ 搭 `research/` 数据管线：AKShare 全 A 日线 + 质量校验
+- ✅ 跑 BL1-BL4（随机游走/历史均值/等权/简单动量）
+- ✅ 落地第一个因子 `mom_6_1` 的 EXP 实验记录（EXP-20260815-001）
+- ⏳ 全市场 + 前复权重跑（EXP-20260815-002）
 
 ### P1（研究层→信号层注入）
 - 因子库 5+ 个（动量/低波动/质量/北向/换手）
@@ -165,6 +169,16 @@ research/
 ├── configs/          # 可复现的 config.yaml
 └── knowledge/        # 因子报告导出（对接 KNOWLEDGE_BASE）
 ```
+
+## 8.1 落地状态（2026-08-15）
+
+- 代码仓库：GitHub `Chen198705/Sws-Shares`，MacBook 与 Studio 双侧同步
+- Studio 路径：`/Users/chenjianhui/AI/Sws-Shares/research/`
+- Studio 运行环境：`/Users/chenjianhui/AI/Sws-Shares/stock-ai/api/.venv/bin/python3`
+  （已补 `pyyaml`、`scipy`）
+- 数据缓存：`research/data/cache/`（已同步到 Studio，git 忽略）
+- 首次正式实验：`EXP-20260815-001`，结果存于
+  `research/experiments/EXP-20260815-001/results/`
 
 ## 9. 演进原则
 
