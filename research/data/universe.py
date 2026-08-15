@@ -15,7 +15,7 @@ def _all_a_codes(exclude_st: bool = True):
 def get_universe(cfg: dict):
     mode = cfg.get("universe", "sample")
     if mode == "list":
-        return [c.zfill(6) for c in cfg["codes"]]
+        return [str(c).zfill(6) for c in cfg["codes"]]
     codes = _all_a_codes(cfg.get("exclude_st", True))
     if mode == "all_a":
         return codes
