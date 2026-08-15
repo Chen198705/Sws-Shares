@@ -41,6 +41,7 @@ def monthly_rebalance(
     min_listed_days: int = 120,
     min_price: float = 3.0,
     max_price: float = 500.0,
+    ascending: bool = False,
 ):
     """月度再平衡、次日开盘成交、T+1 持有到下一期。返回组合净值/持仓/IC。"""
     mats = build_matrices(panel)
@@ -62,13 +63,16 @@ def monthly_rebalance(
         if len(entry) == 0:
             break
         entry_date = entry[0]
-        if entry_date not in factor_matrix.index:
+        if d not in factor_matrix.index:
             continue
-        factor = factor_matrix.loc[entry_date]
+        # 信号只用月末收盘信息（d 日），成交在下一交易日开盘，避免前视偏差
+        factor = factor_matrix.loc[d]
         listed_days = close.loc[:d].notna().sum()
         eligible = factor.notna() & (listed_days >= min_listed_days)
         eligible &= close.loc[entry_date].notna() & open_.loc[entry_date].notna()
         eligible &= volume.loc[entry_date].fillna(0) > 0
+        price_ok = close.loc[d].between(min_price, max_price)
+        eligible &= price_ok
         prev_close = close.shift(1).loc[entry_date]
         ups = pd.Series(False, index=close.columns)
         downs = pd.Series(False, index=close.columns)
@@ -77,15 +81,13 @@ def monthly_rebalance(
                 u, dn = _limit_up_down(c, prev_close[c], close.loc[entry_date][c])
                 ups[c], downs[c] = u, dn
         eligible &= ~ups
-        price_ok = close.loc[entry_date].between(min_price, max_price)
-        eligible &= price_ok
 
         # 选 top 分位
         scores = factor[eligible].dropna()
         if scores.empty:
             continue
         n_sel = min(max(1, int(len(scores) * top_quantile)), max_holdings)
-        selected = scores.sort_values(ascending=False).head(n_sel).index
+        selected = scores.sort_values(ascending=ascending).head(n_sel).index
         w = 1.0 / len(selected)
 
         # 持有期收益（entry 开盘买入，下一 rebalance 后开盘卖出）
@@ -118,13 +120,13 @@ def monthly_rebalance(
         if len(entry) == 0:
             break
         entry_date = entry[0]
-        if entry_date not in factor_matrix.index:
+        if d not in factor_matrix.index:
             continue
         nxt = rebalance_dates[i + 1]
         exit_date = cal[cal > nxt]
         exit_date = exit_date[0] if len(exit_date) else cal[-1]
         fwd = close.loc[exit_date] / open_.loc[entry_date] - 1
-        f = factor_matrix.loc[entry_date]
+        f = factor_matrix.loc[d]
         df = pd.concat([f, fwd], axis=1).dropna()
         if len(df) >= 5 and df.iloc[:, 0].nunique() > 1:
             ics.append(df.iloc[:, 0].corr(df.iloc[:, 1], method="spearman"))

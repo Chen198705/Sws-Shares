@@ -1,17 +1,22 @@
 """策略参数持久化 - 按 strategy_type 分离止损止盈参数"""
-import sqlite3, json
+import os, sqlite3, json
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass, asdict, field
 from typing import Optional
 
 DB_PATH = Path(__file__).parent / "logs" / "trading_log.db"
+RESEARCH_PARAMS_PATH = Path(os.getenv(
+    "RESEARCH_PARAMS_PATH",
+    str(Path(__file__).resolve().parents[2] / "research" / "export" / "strategy_params.json"),
+))
 
 
 @dataclass
 class StrategyParams:
     max_position_size: float = 0.25
     max_total_position: float = 0.70
+    min_cash_pct: float = 0.30
     stop_loss_pct: float = -0.05      # 全局兜底
     take_profit_pct: float = 0.15    # 全局兜底（中线默认）
     min_confidence: int = 60
@@ -76,6 +81,7 @@ def load_params() -> StrategyParams:
     p = StrategyParams()
     float_keys = {
         "max_position_size", "max_total_position",
+        "min_cash_pct",
         "stop_loss_pct", "take_profit_pct",
         "short_stop_loss", "short_take_profit",
         "mid_stop_loss", "mid_take_profit",
@@ -105,6 +111,45 @@ def save_params(p: StrategyParams):
         c.execute("INSERT OR REPLACE INTO strategy_params (key,value,updated_at) VALUES (?,?,?)", (k, sv, now))
     c.commit()
     c.close()
+
+
+def load_research_params() -> dict:
+    """读取研究层只读契约；文件不存在或损坏时返回空 dict，不影响现有运行。"""
+    try:
+        if RESEARCH_PARAMS_PATH.exists():
+            return json.loads(RESEARCH_PARAMS_PATH.read_text())
+    except Exception:
+        pass
+    return {}
+
+
+def get_research_overlay() -> dict:
+    data = load_research_params()
+    return {
+        "version": data.get("version"),
+        "confidence": data.get("confidence"),
+        "regime": data.get("regime"),
+        "factor_constraints": data.get("factor_constraints"),
+        "risk_limits": data.get("risk_limits"),
+        "horizon_weights": data.get("horizon_weights"),
+    }
+
+
+def get_effective_params() -> StrategyParams:
+    """DB 参数 + 研究层只读风险覆盖；研究层不写回 DB。"""
+    p = load_params()
+    rl = load_research_params().get("risk_limits") or {}
+    for src, dst in [
+        ("max_position_size", "max_position_size"),
+        ("max_total_position", "max_total_position"),
+        ("min_cash_pct", "min_cash_pct"),
+    ]:
+        if src in rl and rl[src] is not None:
+            try:
+                setattr(p, dst, float(rl[src]))
+            except (TypeError, ValueError):
+                pass
+    return p
 
 
 def log_attribution(trade_id: int, ai_reason: str, market_context: str,

@@ -16,6 +16,7 @@ from ai_client import OllamaClient, analyze_with_fallback, get_client
 from rule_engine import analyze as rule_analyze
 from broker_adapter import get_broker
 from trader import get_trading_status
+from strategy_store import get_strategy_summary
 from config import OLLAMA_BASE_URL, OLLAMA_API_KEY, OLLAMA_MODEL
 
 
@@ -269,6 +270,24 @@ async def bot_model_set(request):
     return SafeJSONResponse({"ok": True, "model": model})
 
 
+async def research_status(request):
+    """研究层只读状态：参数契约 + 平仓归因 + 策略汇总。"""
+    root = Path(__file__).resolve().parents[2]
+    contract_path = root / "research" / "export" / "strategy_params.json"
+    attribution_path = root / "research" / "attribution" / "reports" / "attribution.json"
+    payload = {"contract": {}, "attribution": None, "strategy_summary": {}}
+    if contract_path.exists():
+        payload["contract"] = json.loads(contract_path.read_text())
+    if attribution_path.exists():
+        payload["attribution"] = json.loads(attribution_path.read_text())
+    try:
+        payload["strategy_summary"] = get_strategy_summary()
+    except Exception:
+        pass
+    payload["overlay_active"] = bool(payload["contract"])
+    return SafeJSONResponse(payload)
+
+
 # ── 路由 ────────────────────────────────────────────────────────
 routes = [
     Route("/api/health", health),
@@ -286,6 +305,7 @@ routes = [
     Route("/api/signal", signal, methods=["POST"]),
     Route("/api/bot-model", bot_model_get),
     Route("/api/bot-model/set", bot_model_set, methods=["POST"]),
+    Route("/api/research/status", research_status),
 ]
 
 static_path = Path(__file__).parent.parent / "front" / "dist"

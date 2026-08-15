@@ -32,6 +32,52 @@ function InlineSpinner({ text = '加载中...' }) {
   );
 }
 
+function ResearchPanel() {
+  const [data, setData] = useState(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    fetch('/api/research/status')
+      .then(r => r.json())
+      .then(d => setData(d))
+      .catch(() => {});
+  }, []);
+  const contract = data?.contract || {};
+  const regime = contract.regime?.state || '—';
+  const factors = contract.factor_constraints || [];
+  const attr = data?.attribution?.total;
+  if (!data) return null;
+  return (
+    <div className="card" style={{ marginTop: '10px' }}>
+      <div className="card-header" style={{ cursor: 'pointer' }} onClick={() => setOpen(o => !o)}>
+        <span className="card-title">研究层</span>
+        <span className="text-sm text-muted">{contract.confidence || 'L0'} · {regime}{open ? ' ▴' : ' ▾'}</span>
+      </div>
+      {open && (
+        <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '8px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+            {factors.map(f => (
+              <span key={f.id} title={f.note || f.id}
+                style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '6px', border: '1px solid var(--border)',
+                  color: f.status.includes('❌') ? 'var(--red)' : (f.status.includes('⚠️') ? '#f59e0b' : 'var(--text-muted)'),
+                  background: f.status.includes('❌') ? '#f43f5e1a' : (f.status.includes('⚠️') ? '#f59e0b1a' : 'transparent') }}>
+                {f.id}
+              </span>
+            ))}
+          </div>
+          {attr && (
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+              已平仓 {attr.count} 笔 · 胜率 {Math.round(attr.win_rate * 100)}% · 净盈亏
+              <span style={{ color: attr.net_pnl >= 0 ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>
+                {attr.net_pnl >= 0 ? '+' : ''}{Number(attr.net_pnl).toFixed(2)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RightPanel({ onSelect = () => {} }) {
   const [portfolio, setPortfolio] = useState(null);
   const [orders, setOrders] = useState([]);
@@ -64,6 +110,7 @@ export default function RightPanel({ onSelect = () => {} }) {
 
   return (
     <div>
+      <ResearchPanel />
       <div className="tabs">
         <button className={`tab ${tab === 'pos' ? 'active' : ''}`} onClick={() => setTab('pos')}>持仓</button>
         <button className={`tab ${tab === 'orders' ? 'active' : ''}`} onClick={() => setTab('orders')}>订单</button>

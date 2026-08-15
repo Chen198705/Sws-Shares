@@ -1,0 +1,78 @@
+{
+  "version": "2026-08-15.1",
+  "generated_at": "2026-08-15T19:38:20",
+  "confidence": "L0",
+  "regime": {
+    "state": "🌊 震荡市",
+    "date": "2026-08-15",
+    "metrics": {
+      "close": 3927.176,
+      "ma20": 3870.3955499999997,
+      "ma60": 3985.8205,
+      "vol_20d_annualized": 0.14054014416856558,
+      "deviation_ma_long": -0.014713281744624496,
+      "state": "🌊 震荡市"
+    }
+  },
+  "factor_constraints": [
+    {
+      "id": "mom_6_1",
+      "status": "❌ 初步失效",
+      "weight": 0.0,
+      "last_verified": "2026-08-15",
+      "note": "EXP-20260815-002 样本外 -13.6%，跑输等权"
+    },
+    {
+      "id": "mom_12_1",
+      "status": "❌ 初步失效",
+      "weight": 0.0,
+      "last_verified": "2026-08-15",
+      "note": "EXP-20260815-002 样本外 -19.6%，跑输等权"
+    },
+    {
+      "id": "mom_1",
+      "status": "🆕 未验证",
+      "weight": 0.0,
+      "last_verified": null,
+      "note": ""
+    },
+    {
+      "id": "vol_60d_realized",
+      "status": "⚠️ 初步正信号",
+      "weight": 0.1,
+      "last_verified": "2026-08-15",
+      "note": "EXP-20260815-002 低波动组合样本外 +5.4%"
+    },
+    {
+      "id": "vol_20d_atr",
+      "status": "⚠️ 初步正信号",
+      "weight": 0.15,
+      "last_verified": "2026-08-15",
+      "note": "EXP-20260815-002 低ATR组合样本外 +6.2%，当前最优"
+    },
+    {
+      "id": "liq_20d_turnover",
+      "status": "⚠️ 初步正信号",
+      "weight": 0.1,
+      "last_verified": "2026-08-15",
+      "note": "EXP-20260815-002 低换手组合样本外 +4.9%"
+    },
+    {
+      "id": "liq_20d_amt",
+      "status": "❌ 初步失效",
+      "weight": 0.0,
+      "last_verified": "2026-08-15",
+      "note": "EXP-20260815-002 高成交额组合样本外 -22.8%"
+    }
+  ],
+  "risk_limits": {
+    "max_position_pct": 0.7,
+    "single_stock_pct": 0.25,
+    "min_cash_pct": 0.3
+  },
+  "horizon_weights": {
+    "short": 0.5,
+    "medium": 0.3,
+    "long": 0.2
+  }
+}

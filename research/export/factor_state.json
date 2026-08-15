@@ -1,0 +1,13 @@
+{
+  "updated_at": "2026-08-15",
+  "confidence": "L0",
+  "factors": [
+    {"id": "mom_6_1", "status": "❌ 初步失效", "weight": 0.0, "last_verified": "2026-08-15", "note": "EXP-20260815-002 样本外 -13.6%，跑输等权"},
+    {"id": "mom_12_1", "status": "❌ 初步失效", "weight": 0.0, "last_verified": "2026-08-15", "note": "EXP-20260815-002 样本外 -19.6%，跑输等权"},
+    {"id": "mom_1", "status": "🆕 未验证", "weight": 0.0, "last_verified": null, "note": ""},
+    {"id": "vol_60d_realized", "status": "⚠️ 初步正信号", "weight": 0.10, "last_verified": "2026-08-15", "note": "EXP-20260815-002 低波动组合样本外 +5.4%"},
+    {"id": "vol_20d_atr", "status": "⚠️ 初步正信号", "weight": 0.15, "last_verified": "2026-08-15", "note": "EXP-20260815-002 低ATR组合样本外 +6.2%，当前最优"},
+    {"id": "liq_20d_turnover", "status": "⚠️ 初步正信号", "weight": 0.10, "last_verified": "2026-08-15", "note": "EXP-20260815-002 低换手组合样本外 +4.9%"},
+    {"id": "liq_20d_amt", "status": "❌ 初步失效", "weight": 0.0, "last_verified": "2026-08-15", "note": "EXP-20260815-002 高成交额组合样本外 -22.8%"}
+  ]
+}

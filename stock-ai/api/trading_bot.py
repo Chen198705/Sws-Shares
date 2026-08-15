@@ -30,6 +30,7 @@ BOT_MODEL = _get_bot_model()
 from strategy_store import (
     init_schema as init_strategy_schema, load_params,
     log_attribution, close_attribution, should_iterate, get_stop_take,
+    get_effective_params, get_research_overlay,
 )
 from iteration_engine import run_iteration
 from market_scanner import scan_market, log_scan_result
@@ -189,6 +190,20 @@ def _market_regime(mkt: str):
     return "偏弱"
 
 
+def _research_regime_bucket() -> str | None:
+    """研究层 regime 优先；无契约时返回 None 走原大盘强弱逻辑。"""
+    regime = (get_research_overlay().get("regime") or {}).get("state", "")
+    if "牛" in regime:
+        return "强"
+    if "熊" in regime:
+        return "偏弱"
+    if "震荡" in regime:
+        return "震荡"
+    if "转换" in regime:
+        return "偏弱"
+    return None
+
+
 # 每个档位 10 个周期槽位，轮转分配确保短/中/长线都能出现
 _HORIZON_BUCKETS = {
     "强": ["短线", "短线", "短线", "短线", "短线", "短线", "短线", "短线", "中线", "长线"],
@@ -202,7 +217,7 @@ _horizon_cursor = 0
 def _allocate_horizon(mkt: str):
     """按大盘档位轮转分配周期，避免模型清一色输出中线"""
     global _horizon_cursor
-    regime = _market_regime(mkt)
+    regime = _research_regime_bucket() or _market_regime(mkt)
     buckets = _HORIZON_BUCKETS[regime]
     label = buckets[_horizon_cursor % len(buckets)]
     _horizon_cursor += 1
@@ -260,7 +275,7 @@ def _trailing_hit(stype: str, params, peak: float, pnl_pct: float) -> bool:
 
 
 def check_positions(client, broker):
-    params = load_params()
+    params = get_effective_params()
     status = get_trading_status()
     action_taken = False
     for pos in status.get("positions", []):
@@ -339,7 +354,7 @@ def analyze_and_decide(client, broker, code):
         print(f"  [{code}] 周期分配: {horizon_label}（大盘{regime}，权重 {weights}）")
 
         if client.is_alive():
-            params = load_params()
+            params = get_effective_params()
             prompt = f"""股票：{stock.get('股票名', code)}（{code}）
 当前价：{stock['最新价']} 涨跌幅：{stock['涨跌幅']:+.2f}%
 今开={stock['今开']} 最高={stock['最高']} 最低={stock['最低']}
@@ -405,7 +420,7 @@ def execute_decision(decision, broker):
     price  = decision["price"]
     stype  = decision.get("strategy_type", "中线")
     horizon = decision.get("horizon", {"短线": "short", "中线": "medium", "长线": "long"}.get(stype, "medium"))
-    params = load_params()
+    params = get_effective_params()
     bal    = broker.get_balance()
     total  = bal["total_assets"]
 
