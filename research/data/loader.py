@@ -1,5 +1,6 @@
 """AKShare 日线加载器：拉取 + 标准化 + 本地缓存。"""
 
+import json
 import time
 from pathlib import Path
 
@@ -91,17 +92,31 @@ def fetch_daily(code: str, start: str, end: str, adjust: str = "", retry: int = 
         return fetch_daily_sina(code, start, end, adjust)
 
 
+def _known_failures(cache_dir: Path, adjust: str) -> set:
+    f = cache_dir / f"_fetch_failures_{adjust or 'raw'}.json"
+    if not f.exists():
+        return set()
+    try:
+        data = json.loads(f.read_text())
+    except Exception:
+        return set()
+    return {str(x.get("code")) for x in data if isinstance(x, dict)}
+
+
 def load_panel(codes, start, end, cache_dir, adjust="", retry=3):
     """返回 {code: DataFrame}；命中缓存直接读取。"""
     cache = Path(cache_dir)
     cache.mkdir(parents=True, exist_ok=True)
     panel = {}
     failures = []
+    skip = _known_failures(cache, adjust)
     for code in codes:
         f = cache / f"{code}_{adjust or 'raw'}.csv"
         if f.exists():
             df = pd.read_csv(f, parse_dates=["date"])
             panel[code] = df
+            continue
+        if code in skip:
             continue
         try:
             df = fetch_daily(code, start, end, adjust, retry)

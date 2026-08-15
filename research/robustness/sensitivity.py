@@ -38,10 +38,20 @@ def run(cfg: dict, factor_name: str) -> dict:
     base = {
         "top_quantile": exp.get("top_quantile", 0.2),
         "min_listed_days": exp.get("min_listed_days", 120),
+        "max_holdings": exp.get("max_holdings", 20),
     }
     variants = {"baseline": base}
-    variants["top_quantile*1.2"] = {**base, "top_quantile": base["top_quantile"] * 1.2}
-    variants["top_quantile*0.8"] = {**base, "top_quantile": base["top_quantile"] * 0.8}
+    # 持仓上限与 top_quantile 联动，避免全市场下被 max_holdings 截断导致变体无效
+    variants["top_quantile*1.2"] = {
+        **base,
+        "top_quantile": base["top_quantile"] * 1.2,
+        "max_holdings": max(5, int(base["max_holdings"] * 1.2)),
+    }
+    variants["top_quantile*0.8"] = {
+        **base,
+        "top_quantile": base["top_quantile"] * 0.8,
+        "max_holdings": max(5, int(base["max_holdings"] * 0.8)),
+    }
     variants["min_listed_days*1.2"] = {**base, "min_listed_days": int(base["min_listed_days"] * 1.2)}
     variants["min_listed_days*0.8"] = {**base, "min_listed_days": max(30, int(base["min_listed_days"] * 0.8))}
 
@@ -50,7 +60,7 @@ def run(cfg: dict, factor_name: str) -> dict:
         out = monthly_rebalance(
             panel, factor_matrix, costs,
             top_quantile=kw["top_quantile"],
-            max_holdings=exp.get("max_holdings", 20),
+            max_holdings=kw["max_holdings"],
             min_listed_days=kw["min_listed_days"],
             min_price=exp.get("min_price", 3.0),
             max_price=exp.get("max_price", 500.0),

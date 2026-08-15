@@ -1,0 +1,926 @@
+{
+  "BL1_random_walk": {
+    "in_sample": {
+      "periods": 124,
+      "total_return": 0.2448508812491137,
+      "annualized_return": 0.021421283356426457,
+      "annualized_vol": 0.29589333285300357,
+      "sharpe": 0.07239528903839244,
+      "max_drawdown": -0.6169628789723811,
+      "calmar": 0.03472053844164164,
+      "sortino": 0.11646676322980752,
+      "win_rate": 0.46774193548387094,
+      "t_stat": 0.6950375974430104
+    },
+    "out_of_sample": {
+      "periods": 24,
+      "total_return": 0.017988292547532092,
+      "annualized_return": 0.008954058690251898,
+      "annualized_vol": 0.34309979177234395,
+      "sharpe": 0.026097534609386065,
+      "max_drawdown": -0.29469304640551286,
+      "calmar": 0.030384356873934006,
+      "sortino": 0.0509687438176373,
+      "win_rate": 0.375,
+      "t_stat": 0.24564982566143875
+    },
+    "regime_breakdown": {
+      "❓ 转换期": {
+        "periods": 1,
+        "total_return": 0.3858815662433648
+      },
+      "🌊 震荡市": {
+        "periods": 20,
+        "total_return": -0.04433115752409433
+      },
+      "🐂 牛市 (高波动)": {
+        "periods": 2,
+        "total_return": -0.041900757452215
+      },
+      "🐻 熊市": {
+        "periods": 1,
+        "total_return": -0.19777029068226015
+      }
+    },
+    "subperiods": {
+      "2023H1": {
+        "periods": 5,
+        "total_return": 0.06284794478936684
+      },
+      "2023H2": {
+        "periods": 6,
+        "total_return": -0.00902266827260978
+      },
+      "2024H1": {
+        "periods": 6,
+        "total_return": -0.14756001471027647
+      },
+      "2024H2": {
+        "periods": 7,
+        "total_return": 0.13381999915753906
+      }
+    },
+    "rank_ic_mean": null,
+    "rank_ic_t": null,
+    "cash_ratio": 0.9862419127935202,
+    "periods": 124
+  },
+  "BL2_historical_mean": {
+    "in_sample": {
+      "periods": 124,
+      "total_return": -0.9900096914342827,
+      "annualized_return": -0.35965966110666736,
+      "annualized_vol": 0.3837996944303295,
+      "sharpe": -0.9371025207315681,
+      "max_drawdown": -0.9945677909934644,
+      "calmar": -0.36162407868387403,
+      "sortino": -1.4486680056636247,
+      "win_rate": 0.3064516129032258,
+      "t_stat": -3.0407501552859157
+    },
+    "out_of_sample": {
+      "periods": 24,
+      "total_return": -0.77291340534545,
+      "annualized_return": -0.5234639629004434,
+      "annualized_vol": 0.39511056944932216,
+      "sharpe": -1.324854365779208,
+      "max_drawdown": -0.7721959181969252,
+      "calmar": -0.6778900931291244,
+      "sortino": -1.723095315951787,
+      "win_rate": 0.25,
+      "t_stat": -2.285020616375005
+    },
+    "regime_breakdown": {
+      "❓ 转换期": {
+        "periods": 1,
+        "total_return": 0.24484084533414996
+      },
+      "🌊 震荡市": {
+        "periods": 20,
+        "total_return": -0.641729315553039
+      },
+      "🐂 牛市 (高波动)": {
+        "periods": 2,
+        "total_return": -0.28387812073555774
+      },
+      "🐻 熊市": {
+        "periods": 1,
+        "total_return": -0.28898387216217714
+      }
+    },
+    "subperiods": {
+      "2023H1": {
+        "periods": 5,
+        "total_return": -0.0031495798619846083
+      },
+      "2023H2": {
+        "periods": 6,
+        "total_return": -0.2988848904471383
+      },
+      "2024H1": {
+        "periods": 6,
+        "total_return": -0.4350007314115918
+      },
+      "2024H2": {
+        "periods": 7,
+        "total_return": -0.42492526320956625
+      }
+    },
+    "rank_ic_mean": -0.06925117298235618,
+    "rank_ic_t": -4.895225941309728,
+    "cash_ratio": 0.9823999999999999,
+    "periods": 124
+  },
+  "BL3_equal_weight": {
+    "in_sample": {
+      "periods": 124,
+      "total_return": 0.2448508812491137,
+      "annualized_return": 0.021421283356426457,
+      "annualized_vol": 0.29589333285300357,
+      "sharpe": 0.07239528903839244,
+      "max_drawdown": -0.6169628789723811,
+      "calmar": 0.03472053844164164,
+      "sortino": 0.11646676322980752,
+      "win_rate": 0.46774193548387094,
+      "t_stat": 0.6950375974430104
+    },
+    "out_of_sample": {
+      "periods": 24,
+      "total_return": 0.017988292547532092,
+      "annualized_return": 0.008954058690251898,
+      "annualized_vol": 0.34309979177234395,
+      "sharpe": 0.026097534609386065,
+      "max_drawdown": -0.29469304640551286,
+      "calmar": 0.030384356873934006,
+      "sortino": 0.0509687438176373,
+      "win_rate": 0.375,
+      "t_stat": 0.24564982566143875
+    },
+    "regime_breakdown": {
+      "❓ 转换期": {
+        "periods": 1,
+        "total_return": 0.3858815662433648
+      },
+      "🌊 震荡市": {
+        "periods": 20,
+        "total_return": -0.04433115752409433
+      },
+      "🐂 牛市 (高波动)": {
+        "periods": 2,
+        "total_return": -0.041900757452215
+      },
+      "🐻 熊市": {
+        "periods": 1,
+        "total_return": -0.19777029068226015
+      }
+    },
+    "subperiods": {
+      "2023H1": {
+        "periods": 5,
+        "total_return": 0.06284794478936684
+      },
+      "2023H2": {
+        "periods": 6,
+        "total_return": -0.00902266827260978
+      },
+      "2024H1": {
+        "periods": 6,
+        "total_return": -0.14756001471027647
+      },
+      "2024H2": {
+        "periods": 7,
+        "total_return": 0.13381999915753906
+      }
+    },
+    "rank_ic_mean": null,
+    "rank_ic_t": null,
+    "cash_ratio": 0.9862419127935202,
+    "periods": 124
+  },
+  "BL4_simple_momentum": {
+    "in_sample": {
+      "periods": 117,
+      "total_return": -0.819406805381126,
+      "annualized_return": -0.1609955888925264,
+      "annualized_vol": 0.3749337956675105,
+      "sharpe": -0.42939737829154384,
+      "max_drawdown": -0.8736458183578917,
+      "calmar": -0.18428015736987602,
+      "sortino": -0.7313322439579684,
+      "win_rate": 0.4188034188034188,
+      "t_stat": -0.8716710076947563
+    },
+    "out_of_sample": {
+      "periods": 24,
+      "total_return": -0.4816695867143095,
+      "annualized_return": -0.28004832572894833,
+      "annualized_vol": 0.4347238226438076,
+      "sharpe": -0.6441982498815273,
+      "max_drawdown": -0.5538894793637905,
+      "calmar": -0.505603258705361,
+      "sortino": -1.451402374255241,
+      "win_rate": 0.2916666666666667,
+      "t_stat": -0.7831599848802445
+    },
+    "regime_breakdown": {
+      "❓ 转换期": {
+        "periods": 1,
+        "total_return": 0.34410345869240944
+      },
+      "🌊 震荡市": {
+        "periods": 20,
+        "total_return": -0.42860324838044306
+      },
+      "🐂 牛市 (高波动)": {
+        "periods": 2,
+        "total_return": -0.1232632676032146
+      },
+      "🐻 熊市": {
+        "periods": 1,
+        "total_return": -0.23021929005879171
+      }
+    },
+    "subperiods": {
+      "2023H1": {
+        "periods": 5,
+        "total_return": -0.11447115681061582
+      },
+      "2023H2": {
+        "periods": 6,
+        "total_return": -0.2840720372379998
+      },
+      "2024H1": {
+        "periods": 6,
+        "total_return": -0.13125436091419895
+      },
+      "2024H2": {
+        "periods": 7,
+        "total_return": -0.058886469073791026
+      }
+    },
+    "rank_ic_mean": -0.02020021780128132,
+    "rank_ic_t": -1.4613615041824495,
+    "cash_ratio": 0.9826271186440678,
+    "periods": 117
+  },
+  "FACTOR_mom_6_1": {
+    "in_sample": {
+      "periods": 123,
+      "total_return": -0.862139836072838,
+      "annualized_return": -0.17578064487487222,
+      "annualized_vol": 0.3911777995010255,
+      "sharpe": -0.4493625279836756,
+      "max_drawdown": -0.9482672529838795,
+      "calmar": -0.18537036296650486,
+      "sortino": -0.7629013125202551,
+      "win_rate": 0.3983739837398374,
+      "t_stat": -0.9491755742215534
+    },
+    "out_of_sample": {
+      "periods": 24,
+      "total_return": -0.5597716885952844,
+      "annualized_return": -0.33650296805131397,
+      "annualized_vol": 0.40073499394482454,
+      "sharpe": -0.8397144575241303,
+      "max_drawdown": -0.637366738222042,
+      "calmar": -0.527958156382621,
+      "sortino": -1.5117213120719155,
+      "win_rate": 0.25,
+      "t_stat": -1.1572741708926797
+    },
+    "regime_breakdown": {
+      "❓ 转换期": {
+        "periods": 1,
+        "total_return": 0.3142420918293958
+      },
+      "🌊 震荡市": {
+        "periods": 20,
+        "total_return": -0.5233263658606369
+      },
+      "🐂 牛市 (高波动)": {
+        "periods": 2,
+        "total_return": -0.04644293213063888
+      },
+      "🐻 熊市": {
+        "periods": 1,
+        "total_return": -0.2630555098731703
+      }
+    },
+    "subperiods": {
+      "2023H1": {
+        "periods": 5,
+        "total_return": -0.02736105576953074
+      },
+      "2023H2": {
+        "periods": 6,
+        "total_return": -0.2981336094383181
+      },
+      "2024H1": {
+        "periods": 6,
+        "total_return": -0.3108226498856812
+      },
+      "2024H2": {
+        "periods": 7,
+        "total_return": -0.06429085923389088
+      }
+    },
+    "rank_ic_mean": -0.011136772957398738,
+    "rank_ic_t": -0.9285683467191849,
+    "cash_ratio": 0.9790322580645161,
+    "periods": 123
+  },
+  "FACTOR_mom_12_1": {
+    "in_sample": {
+      "periods": 117,
+      "total_return": -0.819406805381126,
+      "annualized_return": -0.1609955888925264,
+      "annualized_vol": 0.3749337956675105,
+      "sharpe": -0.42939737829154384,
+      "max_drawdown": -0.8736458183578917,
+      "calmar": -0.18428015736987602,
+      "sortino": -0.7313322439579684,
+      "win_rate": 0.4188034188034188,
+      "t_stat": -0.8716710076947563
+    },
+    "out_of_sample": {
+      "periods": 24,
+      "total_return": -0.4816695867143095,
+      "annualized_return": -0.28004832572894833,
+      "annualized_vol": 0.4347238226438076,
+      "sharpe": -0.6441982498815273,
+      "max_drawdown": -0.5538894793637905,
+      "calmar": -0.505603258705361,
+      "sortino": -1.451402374255241,
+      "win_rate": 0.2916666666666667,
+      "t_stat": -0.7831599848802445
+    },
+    "regime_breakdown": {
+      "❓ 转换期": {
+        "periods": 1,
+        "total_return": 0.34410345869240944
+      },
+      "🌊 震荡市": {
+        "periods": 20,
+        "total_return": -0.42860324838044306
+      },
+      "🐂 牛市 (高波动)": {
+        "periods": 2,
+        "total_return": -0.1232632676032146
+      },
+      "🐻 熊市": {
+        "periods": 1,
+        "total_return": -0.23021929005879171
+      }
+    },
+    "subperiods": {
+      "2023H1": {
+        "periods": 5,
+        "total_return": -0.11447115681061582
+      },
+      "2023H2": {
+        "periods": 6,
+        "total_return": -0.2840720372379998
+      },
+      "2024H1": {
+        "periods": 6,
+        "total_return": -0.13125436091419895
+      },
+      "2024H2": {
+        "periods": 7,
+        "total_return": -0.058886469073791026
+      }
+    },
+    "rank_ic_mean": -0.02020021780128132,
+    "rank_ic_t": -1.4613615041824495,
+    "cash_ratio": 0.9826271186440678,
+    "periods": 117
+  },
+  "FACTOR_mom_1": {
+    "in_sample": {
+      "periods": 124,
+      "total_return": -0.9990288643715868,
+      "annualized_return": -0.4889699475166842,
+      "annualized_vol": 0.40717265101343225,
+      "sharpe": -1.2008909397516325,
+      "max_drawdown": -0.9994970715162124,
+      "calmar": -0.4892159881718601,
+      "sortino": -1.8906032432822872,
+      "win_rate": 0.2903225806451613,
+      "t_stat": -4.475956655036772
+    },
+    "out_of_sample": {
+      "periods": 24,
+      "total_return": -0.8647678822664365,
+      "annualized_return": -0.6322608020164787,
+      "annualized_vol": 0.4222342743804604,
+      "sharpe": -1.4974170511008087,
+      "max_drawdown": -0.8849009853884492,
+      "calmar": -0.7144989241241857,
+      "sortino": -2.121948705431804,
+      "win_rate": 0.16666666666666666,
+      "t_stat": -2.9094186194614813
+    },
+    "regime_breakdown": {
+      "❓ 转换期": {
+        "periods": 1,
+        "total_return": 0.17073672728773714
+      },
+      "🌊 震荡市": {
+        "periods": 20,
+        "total_return": -0.7489258844440709
+      },
+      "🐂 牛市 (高波动)": {
+        "periods": 2,
+        "total_return": -0.344947611188399
+      },
+      "🐻 熊市": {
+        "periods": 1,
+        "total_return": -0.29766771922457835
+      }
+    },
+    "subperiods": {
+      "2023H1": {
+        "periods": 5,
+        "total_return": 0.1749198565249246
+      },
+      "2023H2": {
+        "periods": 6,
+        "total_return": -0.4837741953659328
+      },
+      "2024H1": {
+        "periods": 6,
+        "total_return": -0.4524329447805988
+      },
+      "2024H2": {
+        "periods": 7,
+        "total_return": -0.5928123615286143
+      }
+    },
+    "rank_ic_mean": -0.06389974706330542,
+    "rank_ic_t": -4.726115888415341,
+    "cash_ratio": 0.9863999999999999,
+    "periods": 124
+  },
+  "FACTOR_vol_60d_realized": {
+    "in_sample": {
+      "periods": 124,
+      "total_return": 1.098664298818639,
+      "annualized_return": 0.07437469746802283,
+      "annualized_vol": 0.19370526610248098,
+      "sharpe": 0.3839580563012388,
+      "max_drawdown": -0.37599894381291965,
+      "calmar": 0.19780560209506431,
+      "sortino": 0.6105066803928703,
+      "win_rate": 0.5080645161290323,
+      "t_stat": 1.4921088286641473
+    },
+    "out_of_sample": {
+      "periods": 24,
+      "total_return": 0.40271881246572705,
+      "annualized_return": 0.18436430732512665,
+      "annualized_vol": 0.24444573217722684,
+      "sharpe": 0.754213647679722,
+      "max_drawdown": -0.10582484477147414,
+      "calmar": 1.7421646847038268,
+      "sortino": 1.657240033522689,
+      "win_rate": 0.5833333333333334,
+      "t_stat": 1.1323743616691326
+    },
+    "regime_breakdown": {
+      "❓ 转换期": {
+        "periods": 1,
+        "total_return": 0.3056172490168476
+      },
+      "🌊 震荡市": {
+        "periods": 20,
+        "total_return": 0.14753093745734702
+      },
+      "🐂 牛市 (高波动)": {
+        "periods": 2,
+        "total_return": -0.07537429198510459
+      },
+      "🐻 熊市": {
+        "periods": 1,
+        "total_return": 0.012568412448606292
+      }
+    },
+    "subperiods": {
+      "2023H1": {
+        "periods": 5,
+        "total_return": 0.10523399513381992
+      },
+      "2023H2": {
+        "periods": 6,
+        "total_return": -0.01118442589228874
+      },
+      "2024H1": {
+        "periods": 6,
+        "total_return": 0.06312442873140411
+      },
+      "2024H2": {
+        "periods": 7,
+        "total_return": 0.20730497785758728
+      }
+    },
+    "rank_ic_mean": -0.08436490881862363,
+    "rank_ic_t": -4.887703486225535,
+    "cash_ratio": 0.9947999999999999,
+    "periods": 124
+  },
+  "FACTOR_vol_20d_atr": {
+    "in_sample": {
+      "periods": 124,
+      "total_return": 0.9929841978552536,
+      "annualized_return": 0.06901609525406349,
+      "annualized_vol": 0.1997885241122632,
+      "sharpe": 0.34544574349667173,
+      "max_drawdown": -0.40016250255897123,
+      "calmar": 0.17247017102481438,
+      "sortino": 0.5395539165182601,
+      "win_rate": 0.5483870967741935,
+      "t_stat": 1.387153937166931
+    },
+    "out_of_sample": {
+      "periods": 24,
+      "total_return": 0.3334697080934168,
+      "annualized_return": 0.15475958887268693,
+      "annualized_vol": 0.22819299658206135,
+      "sharpe": 0.6781960497943382,
+      "max_drawdown": -0.09668592108958629,
+      "calmar": 1.600642442339576,
+      "sortino": 1.6326374698361428,
+      "win_rate": 0.5416666666666666,
+      "t_stat": 1.0366882943075144
+    },
+    "regime_breakdown": {
+      "❓ 转换期": {
+        "periods": 1,
+        "total_return": 0.27364735713093635
+      },
+      "🌊 震荡市": {
+        "periods": 20,
+        "total_return": 0.0856703798505154
+      },
+      "🐂 牛市 (高波动)": {
+        "periods": 2,
+        "total_return": -0.049591455528109285
+      },
+      "🐻 熊市": {
+        "periods": 1,
+        "total_return": 0.014671902438616602
+      }
+    },
+    "subperiods": {
+      "2023H1": {
+        "periods": 5,
+        "total_return": 0.06113737682325748
+      },
+      "2023H2": {
+        "periods": 6,
+        "total_return": -0.029379360076012162
+      },
+      "2024H1": {
+        "periods": 6,
+        "total_return": 0.054692812410633174
+      },
+      "2024H2": {
+        "periods": 7,
+        "total_return": 0.22754107699599202
+      }
+    },
+    "rank_ic_mean": -0.0831686788785313,
+    "rank_ic_t": -4.984544451118633,
+    "cash_ratio": 0.9944000000000001,
+    "periods": 124
+  },
+  "FACTOR_liq_20d_turnover": {
+    "in_sample": {
+      "periods": 124,
+      "total_return": 1.7435638794545105,
+      "annualized_return": 0.10259898422639457,
+      "annualized_vol": 0.18962437569723328,
+      "sharpe": 0.5410643217632043,
+      "max_drawdown": -0.2842849099546001,
+      "calmar": 0.3609019706419855,
+      "sortino": 0.774364522475554,
+      "win_rate": 0.6048387096774194,
+      "t_stat": 1.9618520420493835
+    },
+    "out_of_sample": {
+      "periods": 24,
+      "total_return": 0.4212204021710013,
+      "annualized_return": 0.1921494881813275,
+      "annualized_vol": 0.2068355394224107,
+      "sharpe": 0.9289964805753688,
+      "max_drawdown": -0.1302181128989125,
+      "calmar": 1.4755972414566623,
+      "sortino": 1.2031653055330245,
+      "win_rate": 0.75,
+      "t_stat": 1.3424112862962665
+    },
+    "regime_breakdown": {
+      "❓ 转换期": {
+        "periods": 1,
+        "total_return": 0.23598734757254558
+      },
+      "🌊 震荡市": {
+        "periods": 20,
+        "total_return": 0.2595788740490832
+      },
+      "🐂 牛市 (高波动)": {
+        "periods": 2,
+        "total_return": -0.09836016984039986
+      },
+      "🐻 熊市": {
+        "periods": 1,
+        "total_return": 0.012485825252265936
+      }
+    },
+    "subperiods": {
+      "2023H1": {
+        "periods": 5,
+        "total_return": 0.09799762149785196
+      },
+      "2023H2": {
+        "periods": 6,
+        "total_return": 0.0009194947810415854
+      },
+      "2024H1": {
+        "periods": 6,
+        "total_return": 0.10369040700683585
+      },
+      "2024H2": {
+        "periods": 7,
+        "total_return": 0.17169241408281288
+      }
+    },
+    "rank_ic_mean": -0.08228845517891058,
+    "rank_ic_t": -4.937032007548972,
+    "cash_ratio": 0.9955999999999999,
+    "periods": 124
+  },
+  "FACTOR_liq_20d_amt": {
+    "in_sample": {
+      "periods": 124,
+      "total_return": -0.7269376164807391,
+      "annualized_return": -0.11804851106408665,
+      "annualized_vol": 0.35029419554441565,
+      "sharpe": -0.3369981934203036,
+      "max_drawdown": -0.8838254902051998,
+      "calmar": -0.13356540671471134,
+      "sortino": -0.680975908341734,
+      "win_rate": 0.4435483870967742,
+      "t_stat": -0.619956495851612
+    },
+    "out_of_sample": {
+      "periods": 24,
+      "total_return": -0.2396533383791588,
+      "annualized_return": -0.12802140988391164,
+      "annualized_vol": 0.35504971163412286,
+      "sharpe": -0.360573197749382,
+      "max_drawdown": -0.4143929479689542,
+      "calmar": -0.3089372309817947,
+      "sortino": -0.8364217073945134,
+      "win_rate": 0.375,
+      "t_stat": -0.31622606230036443
+    },
+    "regime_breakdown": {
+      "❓ 转换期": {
+        "periods": 1,
+        "total_return": 0.2939279105266164
+      },
+      "🌊 震荡市": {
+        "periods": 20,
+        "total_return": -0.14150317687916392
+      },
+      "🐂 牛市 (高波动)": {
+        "periods": 2,
+        "total_return": -0.1478002844254096
+      },
+      "🐻 熊市": {
+        "periods": 1,
+        "total_return": -0.19680409557129264
+      }
+    },
+    "subperiods": {
+      "2023H1": {
+        "periods": 5,
+        "total_return": 0.10710380394474073
+      },
+      "2023H2": {
+        "periods": 6,
+        "total_return": -0.21854194149923
+      },
+      "2024H1": {
+        "periods": 6,
+        "total_return": -0.1285470304173737
+      },
+      "2024H2": {
+        "periods": 7,
+        "total_return": 0.008494821024194188
+      }
+    },
+    "rank_ic_mean": -0.10360473301181393,
+    "rank_ic_t": -7.412237349869945,
+    "cash_ratio": 0.9907999999999999,
+    "periods": 124
+  },
+  "FACTOR_liq_amihud_20d": {
+    "in_sample": {
+      "periods": 124,
+      "total_return": -0.11744779839956432,
+      "annualized_return": -0.012017911373921608,
+      "annualized_vol": 0.28331881371594597,
+      "sharpe": -0.04241833154776197,
+      "max_drawdown": -0.6256417697381689,
+      "calmar": -0.01920893385835013,
+      "sortino": -0.07456830890729338,
+      "win_rate": 0.532258064516129,
+      "t_stat": 0.297297058903083
+    },
+    "out_of_sample": {
+      "periods": 24,
+      "total_return": 0.05398986212920587,
+      "annualized_return": 0.02664008402614293,
+      "annualized_vol": 0.3212195324732234,
+      "sharpe": 0.08293419712378053,
+      "max_drawdown": -0.28075684908546794,
+      "calmar": 0.09488667547352748,
+      "sortino": 0.2356163722177058,
+      "win_rate": 0.5,
+      "t_stat": 0.3052087080599936
+    },
+    "regime_breakdown": {
+      "❓ 转换期": {
+        "periods": 1,
+        "total_return": 0.37698676553724675
+      },
+      "🌊 震荡市": {
+        "periods": 20,
+        "total_return": -0.08578593393744527
+      },
+      "🐂 牛市 (高波动)": {
+        "periods": 2,
+        "total_return": -0.12131369190333319
+      },
+      "🐻 熊市": {
+        "periods": 1,
+        "total_return": -0.047149186268320764
+      }
+    },
+    "subperiods": {
+      "2023H1": {
+        "periods": 5,
+        "total_return": -0.04920446738212303
+      },
+      "2023H2": {
+        "periods": 6,
+        "total_return": -0.12183416561784699
+      },
+      "2024H1": {
+        "periods": 6,
+        "total_return": 0.043480001842338245
+      },
+      "2024H2": {
+        "periods": 7,
+        "total_return": 0.20973051092769435
+      }
+    },
+    "rank_ic_mean": 0.06634318601827822,
+    "rank_ic_t": 4.548123369466097,
+    "cash_ratio": 0.9932000000000001,
+    "periods": 124
+  },
+  "FACTOR_astock_limit_up_5d": {
+    "in_sample": {
+      "periods": 124,
+      "total_return": -0.9989235447546001,
+      "annualized_return": -0.4838525282698771,
+      "annualized_vol": 0.3499175469224131,
+      "sharpe": -1.382761546328402,
+      "max_drawdown": -0.9993948425050575,
+      "calmar": -0.4841455125554428,
+      "sortino": -2.107796766110225,
+      "win_rate": 0.29838709677419356,
+      "t_stat": -5.32087321164327
+    },
+    "out_of_sample": {
+      "periods": 24,
+      "total_return": -0.8767980084271466,
+      "annualized_return": -0.6489985875058999,
+      "annualized_vol": 0.34038620171611206,
+      "sharpe": -1.9066536311809017,
+      "max_drawdown": -0.8707007569161334,
+      "calmar": -0.7453750124262405,
+      "sortino": -2.477359304689071,
+      "win_rate": 0.16666666666666666,
+      "t_stat": -3.9088787461337073
+    },
+    "regime_breakdown": {
+      "❓ 转换期": {
+        "periods": 1,
+        "total_return": 0.18848689211275982
+      },
+      "🌊 震荡市": {
+        "periods": 20,
+        "total_return": -0.7713114973476165
+      },
+      "🐂 牛市 (高波动)": {
+        "periods": 2,
+        "total_return": -0.31648421593385156
+      },
+      "🐻 熊市": {
+        "periods": 1,
+        "total_return": -0.3368214769822233
+      }
+    },
+    "subperiods": {
+      "2023H1": {
+        "periods": 5,
+        "total_return": -0.0786810940660444
+      },
+      "2023H2": {
+        "periods": 6,
+        "total_return": -0.33288952863617427
+      },
+      "2024H1": {
+        "periods": 6,
+        "total_return": -0.5897756003173197
+      },
+      "2024H2": {
+        "periods": 7,
+        "total_return": -0.5113605806487626
+      }
+    },
+    "rank_ic_mean": -0.057568299487856106,
+    "rank_ic_t": -11.260882245134166,
+    "cash_ratio": 0.9848,
+    "periods": 124
+  },
+  "FACTOR_astock_maxdd_60d": {
+    "in_sample": {
+      "periods": 124,
+      "total_return": 0.22319068379755858,
+      "annualized_return": 0.01968769196695286,
+      "annualized_vol": 0.2233043277701618,
+      "sharpe": 0.08816529515369094,
+      "max_drawdown": -0.5567442085534167,
+      "calmar": 0.03536218547851123,
+      "sortino": 0.11742665808851349,
+      "win_rate": 0.5806451612903226,
+      "t_stat": 0.6421792564606652
+    },
+    "out_of_sample": {
+      "periods": 24,
+      "total_return": 0.3161520332926251,
+      "annualized_return": 0.14723669453719324,
+      "annualized_vol": 0.20985355569215985,
+      "sharpe": 0.7016163917335713,
+      "max_drawdown": -0.14984015787217086,
+      "calmar": 0.9826250627872493,
+      "sortino": 1.1048777092424222,
+      "win_rate": 0.625,
+      "t_stat": 1.0669528978944627
+    },
+    "regime_breakdown": {
+      "❓ 转换期": {
+        "periods": 1,
+        "total_return": 0.20744140171353243
+      },
+      "🌊 震荡市": {
+        "periods": 20,
+        "total_return": 0.30745298114576847
+      },
+      "🐂 牛市 (高波动)": {
+        "periods": 2,
+        "total_return": -0.14516415161658613
+      },
+      "🐻 熊市": {
+        "periods": 1,
+        "total_return": -0.024715797262198747
+      }
+    },
+    "subperiods": {
+      "2023H1": {
+        "periods": 5,
+        "total_return": 0.23769748225472265
+      },
+      "2023H2": {
+        "periods": 6,
+        "total_return": 0.004796039665837082
+      },
+      "2024H1": {
+        "periods": 6,
+        "total_return": 0.089109461140916
+      },
+      "2024H2": {
+        "periods": 7,
+        "total_return": -0.028277841734793974
+      }
+    },
+    "rank_ic_mean": -0.019776188084133933,
+    "rank_ic_t": -1.2452436609591342,
+    "cash_ratio": 0.9867999999999999,
+    "periods": 124
+  }
+}

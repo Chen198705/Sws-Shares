@@ -146,7 +146,7 @@ def run(cfg: dict):
             f"最大回撤 {p.get('max_drawdown', 0):.2%}"
         )
 
-    lines = [f"# {exp_id} 实验结果", "", "| 策略 | 样本内 | 样本外 | rank IC | 现金占比 | 期数 |", "|---|---|---|---|---|---|"]
+    lines = [f"# {exp_id} 实验结果", "", "| 策略 | 样本内 | 样本外 | rank IC | 成交占比 | 期数 |", "|---|---|---|---|---|---|"]
     for name, s in summary.items():
         ic = f"{s['rank_ic_mean']:.3f}" if s["rank_ic_mean"] is not None else "-"
         if s["rank_ic_t"] is not None:
