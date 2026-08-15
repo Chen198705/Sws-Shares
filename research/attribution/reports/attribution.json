@@ -1,0 +1,10 @@
+{
+  "generated_at": "2026-08-15T20:13:39",
+  "db": "/Users/chenjianhui/AI/Sws-Shares/stock-ai/api/logs/trading_log.db",
+  "total": {
+    "count": 0,
+    "win_rate": 0.0,
+    "net_pnl": 0.0
+  },
+  "message": "暂无已平仓交易"
+}

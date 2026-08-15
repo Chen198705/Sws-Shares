@@ -64,6 +64,26 @@ function ResearchPanel() {
               </span>
             ))}
           </div>
+          {contract.crowding && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+              {Object.entries(contract.crowding).map(([id, c]) => (
+                <span key={id} title={(c.flags || []).join('，') || c.note || id}
+                  style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '6px', border: '1px solid var(--border)',
+                    color: c.crowded ? 'var(--red)' : 'var(--text-muted)',
+                    background: c.crowded ? '#f43f5e1a' : 'transparent' }}>
+                  {id}{c.crowded ? ' ⚠️' : ''}
+                </span>
+              ))}
+            </div>
+          )}
+          {contract.regime?.history?.months?.length > 0 && (
+            <div style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {contract.regime.history.months.slice(-6).map(m => {
+                const rule = contract.regime.history.rule?.[m] || '';
+                return <span key={m}>{m.slice(2)} {rule.split(' ')[0]}</span>;
+              })}
+            </div>
+          )}
           {attr && (
             <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
               已平仓 {attr.count} 笔 · 胜率 {Math.round(attr.win_rate * 100)}% · 净盈亏

@@ -7,10 +7,13 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 FACTOR_STATE = ROOT / "export" / "factor_state.json"
 REGIME_STATE = ROOT / "export" / "regime_state.json"
+CROWDING = ROOT / "export" / "factor_crowding.json"
+REGIME_HISTORY = ROOT / "export" / "regime_history.csv"
 OUT = ROOT / "export" / "strategy_params.json"
 
 
@@ -23,9 +26,23 @@ def _horizon_weights(regime: str) -> dict:
     return {"short": 0.5, "medium": 0.3, "long": 0.2}
 
 
+def _regime_history_summary() -> dict:
+    if not REGIME_HISTORY.exists():
+        return {}
+    hist = pd.read_csv(REGIME_HISTORY, parse_dates=["date"])
+    hist["month"] = hist["date"].dt.to_period("M").astype(str)
+    last12 = hist[hist["month"] >= str(pd.Timestamp.now().to_period("M") - 11)]
+    return {
+        "months": sorted(last12["month"].unique().tolist()),
+        "rule": last12.groupby("month")["rule"].last().to_dict(),
+        "hmm": last12.groupby("month")["hmm"].last().to_dict(),
+    }
+
+
 def build() -> dict:
     factor_state = json.loads(FACTOR_STATE.read_text()) if FACTOR_STATE.exists() else {"factors": []}
     regime_state = json.loads(REGIME_STATE.read_text()) if REGIME_STATE.exists() else {}
+    crowding = json.loads(CROWDING.read_text()) if CROWDING.exists() else {}
     metrics = regime_state.get("metrics", {})
     regime_label = metrics.get("state", "❓ 转换期")
 
@@ -37,8 +54,13 @@ def build() -> dict:
             "state": regime_label,
             "date": datetime.now().strftime("%Y-%m-%d"),
             "metrics": metrics,
+            "history": _regime_history_summary(),
+            "hmm": {
+                "state_share": (regime_state.get("hmm") or {}).get("params", {}).get("state_share"),
+            },
         },
         "factor_constraints": factor_state.get("factors", []),
+        "crowding": crowding.get("factors", {}),
         "risk_limits": {
             "max_position_pct": 0.70,
             "single_stock_pct": 0.25,

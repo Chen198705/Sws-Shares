@@ -110,10 +110,20 @@ def run(cfg: dict):
         perf_all = performance(ret)
         perf_oos = performance(_split_returns(nav, split))
         ic = out["ic"]
+        oos_ret = _split_returns(nav, split)
+        subperiods = {}
+        for key, grp in oos_ret.groupby(
+            lambda d: f"{d.year}H{'1' if d.month <= 6 else '2'}"
+        ):
+            subperiods[key] = {
+                "periods": len(grp),
+                "total_return": float((1 + grp).prod() - 1) if len(grp) else 0.0,
+            }
         summary[name] = {
             "in_sample": perf_all,
             "out_of_sample": perf_oos,
             "regime_breakdown": regime_breakdown.get(name, {}),
+            "subperiods": subperiods,
             "rank_ic_mean": float(ic.mean()) if len(ic) else None,
             "rank_ic_t": float(ic.mean() / (ic.std() / len(ic) ** 0.5)) if len(ic) > 1 and ic.std() > 0 else None,
             "cash_ratio": out["cash_ratio"],
@@ -152,6 +162,14 @@ def run(cfg: dict):
     for name, s in summary.items():
         for label, v in s.get("regime_breakdown", {}).items():
             lines.append(f"| {name} | {label} | {v['periods']} | {v['total_return']:.2%} |")
+    lines.append("")
+    lines.append("## 样本外子周期")
+    lines.append("")
+    lines.append("| 策略 | 子周期 | 期数 | 累计收益 |")
+    lines.append("|---|---|---|---|")
+    for name, s in summary.items():
+        for key, v in s.get("subperiods", {}).items():
+            lines.append(f"| {name} | {key} | {v['periods']} | {v['total_return']:.2%} |")
     (report_dir / "report.md").write_text("\n".join(lines), encoding="utf-8")
     print(f"[{exp_id}] done -> {report_dir}")
     return summary

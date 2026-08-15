@@ -8,6 +8,9 @@
     {"id": "vol_60d_realized", "status": "⚠️ 初步正信号", "weight": 0.10, "last_verified": "2026-08-15", "note": "EXP-20260815-002 低波动组合样本外 +5.4%"},
     {"id": "vol_20d_atr", "status": "⚠️ 初步正信号", "weight": 0.15, "last_verified": "2026-08-15", "note": "EXP-20260815-002 低ATR组合样本外 +6.2%，当前最优"},
     {"id": "liq_20d_turnover", "status": "⚠️ 初步正信号", "weight": 0.10, "last_verified": "2026-08-15", "note": "EXP-20260815-002 低换手组合样本外 +4.9%"},
-    {"id": "liq_20d_amt", "status": "❌ 初步失效", "weight": 0.0, "last_verified": "2026-08-15", "note": "EXP-20260815-002 高成交额组合样本外 -22.8%"}
+    {"id": "liq_20d_amt", "status": "❌ 初步失效", "weight": 0.0, "last_verified": "2026-08-15", "note": "EXP-20260815-002 高成交额组合样本外 -22.8%"},
+    {"id": "liq_amihud_20d", "status": "🆕 未验证", "weight": 0.0, "last_verified": null, "note": "EXP-20260815-003 全市场前复权复验"},
+    {"id": "astock_limit_up_5d", "status": "🆕 未验证", "weight": 0.0, "last_verified": null, "note": "EXP-20260815-003 全市场前复权复验"},
+    {"id": "astock_maxdd_60d", "status": "🆕 未验证", "weight": 0.0, "last_verified": null, "note": "EXP-20260815-003 全市场前复权复验"}
   ]
 }

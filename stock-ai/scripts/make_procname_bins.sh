@@ -15,7 +15,7 @@ if [[ ! -x "$SYS_PY" ]]; then
 fi
 
 mkdir -p "$BIN_DIR"
-for name in shenwansan-api shenwansan-bot; do
+for name in shenwansan-api shenwansan-bot shenwansan-research; do
   cp "$SYS_PY" "$BIN_DIR/$name"
   install_name_tool -change "@executable_path/../../../../Python3" "$FW_PY" "$BIN_DIR/$name" 2>/dev/null || true
   codesign --remove-signature "$BIN_DIR/$name" 2>/dev/null || true

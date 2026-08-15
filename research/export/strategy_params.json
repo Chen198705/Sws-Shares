@@ -1,6 +1,6 @@
 {
   "version": "2026-08-15.1",
-  "generated_at": "2026-08-15T19:38:20",
+  "generated_at": "2026-08-15T20:13:39",
   "confidence": "L0",
   "regime": {
     "state": "🌊 震荡市",
@@ -12,6 +12,56 @@
       "vol_20d_annualized": 0.14054014416856558,
       "deviation_ma_long": -0.014713281744624496,
       "state": "🌊 震荡市"
+    },
+    "history": {
+      "months": [
+        "2025-09",
+        "2025-10",
+        "2025-11",
+        "2025-12",
+        "2026-01",
+        "2026-02",
+        "2026-03",
+        "2026-04",
+        "2026-05",
+        "2026-06",
+        "2026-07",
+        "2026-08"
+      ],
+      "rule": {
+        "2025-09": "🌊 震荡市",
+        "2025-10": "🌊 震荡市",
+        "2025-11": "🌊 震荡市",
+        "2025-12": "🌊 震荡市",
+        "2026-01": "🌊 震荡市",
+        "2026-02": "🌊 震荡市",
+        "2026-03": "🌊 震荡市",
+        "2026-04": "🌊 震荡市",
+        "2026-05": "🌊 震荡市",
+        "2026-06": "🌊 震荡市",
+        "2026-07": "🌊 震荡市",
+        "2026-08": "🌊 震荡市"
+      },
+      "hmm": {
+        "2025-09": "🌊 震荡市",
+        "2025-10": "🌊 震荡市",
+        "2025-11": "🌊 震荡市",
+        "2025-12": "🌊 震荡市",
+        "2026-01": "🌊 震荡市",
+        "2026-02": "🌊 震荡市",
+        "2026-03": "🐻 熊市",
+        "2026-04": "🌊 震荡市",
+        "2026-05": "🌊 震荡市",
+        "2026-06": "🌊 震荡市",
+        "2026-07": "🐻 熊市",
+        "2026-08": "🌊 震荡市"
+      }
+    },
+    "hmm": {
+      "state_share": {
+        "1": 0.5012,
+        "0": 0.4988
+      }
     }
   },
   "factor_constraints": [
@@ -63,8 +113,141 @@
       "weight": 0.0,
       "last_verified": "2026-08-15",
       "note": "EXP-20260815-002 高成交额组合样本外 -22.8%"
+    },
+    {
+      "id": "liq_amihud_20d",
+      "status": "🆕 未验证",
+      "weight": 0.0,
+      "last_verified": null,
+      "note": "EXP-20260815-003 全市场前复权复验"
+    },
+    {
+      "id": "astock_limit_up_5d",
+      "status": "🆕 未验证",
+      "weight": 0.0,
+      "last_verified": null,
+      "note": "EXP-20260815-003 全市场前复权复验"
+    },
+    {
+      "id": "astock_maxdd_60d",
+      "status": "🆕 未验证",
+      "weight": 0.0,
+      "last_verified": null,
+      "note": "EXP-20260815-003 全市场前复权复验"
     }
   ],
+  "crowding": {
+    "mom_12_1": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "mom_6_1": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "mom_1": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "vol_60d_realized": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "vol_20d_atr": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "liq_20d_turnover": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "liq_20d_amt": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "liq_amihud_20d": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "astock_limit_up_5d": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "astock_maxdd_60d": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    }
+  },
   "risk_limits": {
     "max_position_pct": 0.7,
     "single_stock_pct": 0.25,

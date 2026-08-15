@@ -1,0 +1,116 @@
+{
+  "generated_at": "2026-08-15T20:13:11",
+  "stocks": 1611,
+  "factors": {
+    "mom_12_1": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "mom_6_1": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "mom_1": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "vol_60d_realized": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "vol_20d_atr": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "liq_20d_turnover": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "liq_20d_amt": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "liq_amihud_20d": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "astock_limit_up_5d": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    },
+    "astock_maxdd_60d": {
+      "available": true,
+      "sharpe_60d": 0.0,
+      "vol_60d": 0.0,
+      "sharpe_prev_120d": 0.0,
+      "vol_prev_120d": 0.0,
+      "factor_ret_60d": 0.0,
+      "flags": [],
+      "crowded": false,
+      "periods": 60
+    }
+  }
+}

@@ -8,6 +8,7 @@
 |---|---|---|---|
 | EXP-20260815-001 | H1: 动量因子在样本外有正 IC | ❌ 失败 | 2026-08-15 |
 | EXP-20260815-002 | H1/H2/H5: 动量/波动率/流动性因子对比 | 🎯 完成（初步 L0） | 2026-08-15 |
+| EXP-20260815-003 | H1/H2/H5: 全市场前复权 10 因子复验 | 🔁 运行中 | 2026-08-15 |
 
 ---
 
@@ -88,4 +89,35 @@ python3 run_experiment.py --config configs/EXP-20260815-001.yaml
 ```bash
 cd research
 python3 run_experiment.py --config configs/EXP-20260815-002.yaml
+```
+
+---
+
+### EXP-20260815-003: 全市场前复权多因子复验
+
+**日期**：2026-08-15
+**负责人**：辉老板
+**假设**：H1 动量 / H2 低波动 / H5 低流动性在**全市场 + qfq** 数据上复验 EXP-002 的 L0 结论，并首次纳入 A 股特色因子（涨停计数、60d 最大回撤）
+**目标**：把 EXP-002 的 46 只随机样本结论升级为全市场 L1 证据，同时检验拥挤度监控覆盖的因子
+**前置实验**：EXP-20260815-002
+
+**数据**：
+- 数据源：AKShare（东财主源，失败自动切新浪）
+- Universe：全 A（5337 只目标，24 只接口失败已记录），前复权 qfq，2014-01-01 至 2024-12-31
+- 剔除规则：ST、上市未满 120 天、价格 3-500 元、涨跌停不可成交、停牌缺数据不成交
+
+**因子**：`mom_6_1` / `mom_12_1` / `mom_1` / `vol_60d_realized` / `vol_20d_atr` / `liq_20d_turnover` / `liq_20d_amt` / `liq_amihud_20d` / `astock_limit_up_5d` / `astock_maxdd_60d`
+
+**方法**：同 EXP-002（月末信号、次月开盘成交、T+1、双边佣金 0.025% + 印花税 0.1% + 滑点 0.1%）；`top_quantile=0.2`、`max_holdings=20`；样本外 2023-2024，并按半年切分子周期输出
+
+**状态**：全市场 qfq 数据拉取进行中（约 1-2 小时），完成后跑回测 + 敏感性检验，结果待填。
+
+**是否更新 KNOWLEDGE_BASE.md**：待结果
+**是否更新 FAILURES.md**：是（记录 24 只拉取失败）
+
+**复现命令**：
+```bash
+cd research
+python3 run_experiment.py --config configs/EXP-20260815-003.yaml
+python3 robustness/sensitivity.py --config configs/EXP-20260815-003.yaml --factor vol_20d_atr
 ```

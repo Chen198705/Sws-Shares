@@ -63,19 +63,43 @@ def _agg_rows(rows: list) -> dict:
 def aggregate(db_path: Path, out_dir: Path) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     if not db_path.exists():
-        return {"error": f"trading_log.db 不存在: {db_path}"}
+        empty = {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "db": str(db_path),
+            "total": {"count": 0, "win_rate": 0.0, "net_pnl": 0.0},
+            "message": f"trading_log.db 不存在: {db_path}",
+        }
+        (out_dir / "attribution.json").write_text(
+            json.dumps(empty, ensure_ascii=False, indent=2), encoding="utf-8")
+        (out_dir / "report.md").write_text(
+            "# 平仓归因报告\n\n暂无已平仓交易。\n", encoding="utf-8")
+        return empty
 
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        """SELECT ta.strategy_type, ta.entry_indicators, ta.pnl, ta.closed_reason, ta.closed_at,
-                  t.code, t.direction, t.price, t.volume
-           FROM trade_attribution ta JOIN trades t ON t.id = ta.trade_id
-           WHERE ta.closed = 1"""
-    ).fetchall()
+    try:
+        rows = conn.execute(
+            """SELECT ta.strategy_type, ta.entry_indicators, ta.pnl, ta.closed_reason, ta.closed_at,
+                      t.code, t.direction, t.price, t.volume
+               FROM trade_attribution ta JOIN trades t ON t.id = ta.trade_id
+               WHERE ta.closed = 1"""
+        ).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
     conn.close()
     if not rows:
-        return {"error": "暂无已平仓交易", "count": 0}
+        empty = {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "db": str(db_path),
+            "total": {"count": 0, "win_rate": 0.0, "net_pnl": 0.0},
+            "message": "暂无已平仓交易",
+        }
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "attribution.json").write_text(
+            json.dumps(empty, ensure_ascii=False, indent=2), encoding="utf-8")
+        (out_dir / "report.md").write_text(
+            "# 平仓归因报告\n\n暂无已平仓交易。\n", encoding="utf-8")
+        return empty
 
     records = []
     for r in rows:
