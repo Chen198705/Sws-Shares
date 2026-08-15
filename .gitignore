@@ -18,3 +18,5 @@ api/reports/*.db
 **/api/bin/
 *.pyc
 .pytest_cache/
+research/data/cache/
+research/**/results/*_nav.csv

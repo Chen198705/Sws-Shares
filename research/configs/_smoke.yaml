@@ -1,0 +1,32 @@
+experiment:
+  id: EXP-SMOKE
+  hypothesis: H1
+  universe: sample
+  sample_size: 6
+  seed: 1
+  start_date: "2019-01-01"
+  end_date: "2024-12-31"
+  split_date: "2023-12-31"
+  factor: mom_6_1
+  rebalance: "M"
+  top_quantile: 0.3
+  min_listed_days: 60
+  max_holdings: 6
+  min_price: 3.0
+  max_price: 500.0
+  exclude_st: true
+
+data:
+  source: akshare
+  adjust: ""
+  cache_dir: data/cache
+  retry: 3
+
+costs:
+  stamp_duty: 0.001
+  commission: 0.00025
+  min_commission: 5.0
+  slippage: 0.001
+  transfer_fee: 0.00001
+
+report_dir: experiments/EXP-SMOKE/results
