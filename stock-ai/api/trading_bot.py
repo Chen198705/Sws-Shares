@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """自动操盘机器人 - 集成策略存储、自动迭代、KDJ/成交量/换手率/strategy_type"""
 import sys, os, json, time, sqlite3, functools, re
+from typing import Optional
 print = functools.partial(print, flush=True)
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -190,7 +191,7 @@ def _market_regime(mkt: str):
     return "偏弱"
 
 
-def _research_regime_bucket() -> str | None:
+def _research_regime_bucket() -> Optional[str]:
     """研究层 regime 优先；无契约时返回 None 走原大盘强弱逻辑。"""
     regime = (get_research_overlay().get("regime") or {}).get("state", "")
     if "牛" in regime:
