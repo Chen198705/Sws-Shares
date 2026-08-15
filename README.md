@@ -1,5 +1,7 @@
 # A股 AI 量化交易系统 · Docker 部署
 
+> 三层架构（研究层 → 信号层 → 执行层）设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
 ## 架构
 
 ```
