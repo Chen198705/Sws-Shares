@@ -470,3 +470,42 @@ PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 experiments/run_policy_event
 
 **结果文件**：`experiments/EXP-20260816-011/results/`（car_per_event.csv /
 car_summary.csv / summary.json / report.md / events_detail.csv）
+
+---
+
+### EXP-20260816-012: R6 分析师预期数据源覆盖度评估
+
+**日期**：2026-08-16
+**负责人**：辉老板
+**假设**：R6 分析师预期修正需要"过去 3 年、月度频次"的个股 EPS 一致预期序列
+**目标**：评估免费源（东方财富 / 同花顺）能否提供足够覆盖度的历史一致预期
+**前置实验**：EXP-001~011（数据管线、因子库、回测引擎、政策因子）
+
+**数据**：东方财富 `reportapi.eastmoney.com`（akshare `stock_research_report_em`，
+全量个股研报）+ 同花顺 `stock_profit_forecast_ths` 快照探针
+**方法**：按总市值三分位分层抽样，每档 10 只共 30 只；回溯 36 个月；
+`研报覆盖度` = 有研报的月份占比；`EPS覆盖度` = 研报带 EPS 预测值的月份占比
+
+**结果（30 只分层样本，2023-08 至 2026-08）**：
+
+| 指标 | mean | median | >=50% 占比 |
+|---|---|---|---|
+| 研报覆盖度 | 16.6% | 13.5% | 3.3% |
+| EPS 覆盖度 | 12.6% | 8.1% | 0.0% |
+
+**结论（数据源评估）**：东财免费接口只回传当前年（+1/+2）的前瞻预测列，历史研报的
+EPS 预测列为空，无法重建历史月度一致预期序列；同花顺同样只有当前年度快照。
+历史覆盖度未达验收门槛（>=50%），按 TASK.md 决策规则 **R6 搁置**；
+后续获得 Choice / Wind 试用（成本 >500 元/月时仍需决策）再重启评估。
+
+**是否更新 KNOWLEDGE_BASE.md**：是（R6 状态：搁置）
+**是否更新 FAILURES.md**：否（属数据不可得，非假设证伪；决策入 D-20260816-008）
+
+**复现命令**：
+```bash
+cd research
+PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 experiments/run_analyst_data_audit.py
+```
+
+**结果文件**：`experiments/EXP-20260816-012/results/`（coverage_per_stock.csv /
+summary.json / report.md）

@@ -1,0 +1,19 @@
+{
+  "experiment": "EXP-20260816-012",
+  "generated_at": "2026-08-16T11:28:03",
+  "data_source": "东方财富 reportapi.eastmoney.com（akshare stock_research_report_em）+ 同花顺快照探针",
+  "lookback_months": 36,
+  "n_stocks": 30,
+  "report_month_coverage": {
+    "mean": 0.16576576576576577,
+    "median": 0.13513513513513514,
+    "pct_ge_50pct": 0.03333333333333333
+  },
+  "eps_month_coverage": {
+    "mean": 0.12612612612612611,
+    "median": 0.08108108108108109,
+    "pct_ge_50pct": 0.0
+  },
+  "verdict": "搁置",
+  "verdict_reason": "免费源（东财/同花顺）仅有当前年度前瞻一致预期快照，无历史月度 EPS 一致预期序列，历史覆盖度不满足 >=50% 验收门槛"
+}
