@@ -11,6 +11,7 @@ load_dotenv(Path(__file__).parent / ".env")
 API = "http://127.0.0.1:5168"
 FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK", "")
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
+_NO_PROXY = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def api_get(path):
