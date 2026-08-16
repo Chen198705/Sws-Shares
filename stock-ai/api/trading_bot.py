@@ -95,6 +95,11 @@ def is_trading_hours():
 
 def seconds_to_open():
     now = datetime.now()
+    if now.weekday() >= 5:
+        # 周末直接跳到下一交易日 09:30，避免 13:00-15:00 字符串区间误判返回 0 秒
+        days_ahead = 7 - now.weekday()  # 周六=2，周日=1
+        target = (now + timedelta(days=days_ahead)).replace(hour=9, minute=30, second=0, microsecond=0)
+        return max(0, int((target - now).total_seconds()))
     t = now.strftime("%H%M")
     if "0930" <= t <= "1130" or "1300" <= t <= "1500":
         return 0
@@ -623,8 +628,9 @@ def main_loop(stop_event):
     while not stop_event.is_set():
         ts = datetime.now().strftime("%H:%M")
         if not is_trading_day():
-            print(f"[{ts}] 非交易日，休眠...")
-            time.sleep(seconds_to_open())
+            secs = seconds_to_open()
+            print(f"[{ts}] 非交易日，{secs//3600}h{secs%3600//60}m 后开盘，休眠...")
+            time.sleep(min(secs, 1800))
             continue
         if not is_trading_hours():
             secs = seconds_to_open()
