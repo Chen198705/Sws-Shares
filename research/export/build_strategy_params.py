@@ -26,6 +26,25 @@ def _horizon_weights(regime: str) -> dict:
     return {"short": 0.5, "medium": 0.3, "long": 0.2}
 
 
+def _risk_limits(regime: str) -> dict:
+    """按 regime 给出总仓位上限（REGIME.md）：牛 100% / 震荡 70% / 熊 50% / 不明 40%。"""
+    if "牛" in regime:
+        max_total = 1.00
+    elif "熊" in regime:
+        max_total = 0.50
+    elif "震荡" in regime:
+        max_total = 0.70
+    else:
+        max_total = 0.40
+    return {
+        "max_position_pct": max_total,
+        "max_total_position": max_total,
+        "single_stock_pct": 0.05,
+        "max_position_size": 0.05,
+        "min_cash_pct": 0.30,
+    }
+
+
 def _regime_history_summary() -> dict:
     if not REGIME_HISTORY.exists():
         return {}
@@ -61,11 +80,7 @@ def build() -> dict:
         },
         "factor_constraints": factor_state.get("factors", []),
         "crowding": crowding.get("factors", {}),
-        "risk_limits": {
-            "max_position_pct": 0.70,
-            "single_stock_pct": 0.05,
-            "min_cash_pct": 0.30,
-        },
+        "risk_limits": _risk_limits(regime_label),
         "horizon_weights": _horizon_weights(regime_label),
     }
     OUT.write_text(json.dumps(contract, ensure_ascii=False, indent=2), encoding="utf-8")

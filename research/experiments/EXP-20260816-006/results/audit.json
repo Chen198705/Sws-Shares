@@ -1,0 +1,49 @@
+{
+  "generated_at": "2026-08-16T09:23:46",
+  "snapshot": "/Users/chenjianhui/AI/Sws-Shares/research/data/cache/fundamental_snapshot.csv",
+  "stocks": 5543,
+  "factors": [
+    {
+      "factor": "value_ep",
+      "coverage": 4000,
+      "coverage_pct": 72.16,
+      "mean": 0.0334,
+      "median": 0.0241
+    },
+    {
+      "factor": "value_bp",
+      "coverage": 0,
+      "coverage_pct": 0.0,
+      "mean": null,
+      "median": null
+    },
+    {
+      "factor": "value_dp",
+      "coverage": 0,
+      "coverage_pct": 0.0,
+      "mean": null,
+      "median": null
+    },
+    {
+      "factor": "size_logcap",
+      "coverage": 5543,
+      "coverage_pct": 100.0,
+      "mean": 22.7501,
+      "median": 22.519
+    },
+    {
+      "factor": "quality_roe",
+      "coverage": 5493,
+      "coverage_pct": 99.1,
+      "mean": 0.5215,
+      "median": 1.0312
+    },
+    {
+      "factor": "quality_gross_margin",
+      "coverage": 5436,
+      "coverage_pct": 98.07,
+      "mean": 23.996,
+      "median": 24.359
+    }
+  ]
+}

@@ -140,8 +140,10 @@ def get_effective_params() -> StrategyParams:
     p = load_params()
     rl = load_research_params().get("risk_limits") or {}
     for src, dst in [
-        ("max_position_size", "max_position_size"),
+        ("max_position_pct", "max_total_position"),
         ("max_total_position", "max_total_position"),
+        ("single_stock_pct", "max_position_size"),
+        ("max_position_size", "max_position_size"),
         ("min_cash_pct", "min_cash_pct"),
     ]:
         if src in rl and rl[src] is not None:

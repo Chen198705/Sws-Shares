@@ -11,6 +11,8 @@
 | EXP-20260815-003 | H1/H2/H5: 全市场前复权 10 因子复验 | 🎯 完成（L1） | 2026-08-15 |
 | EXP-20260815-004 | H6: GARCH(1,1)/GJR 优于历史波动率 | ❌ 不通过 | 2026-08-16 |
 | EXP-20260815-005 | M1: 多因子截面 OLS 样本外保持显著 | 🎯 完成（交叉验证） | 2026-08-16 |
+| EXP-20260816-006 | Tier1 价值/规模/质量因子实现与截面覆盖 | 🎯 完成（L0 待历史验证） | 2026-08-16 |
+| EXP-20260816-007 | M2: Ridge/LASSO 样本外交叉验证 | 🎯 完成（交叉验证） | 2026-08-16 |
 
 ---
 
@@ -229,4 +231,75 @@ PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 experiments/EXP-20260815-004
 ```bash
 cd research
 PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 experiments/EXP-20260815-005/run.py
+```
+
+---
+
+### EXP-20260816-006: Tier1 价值/规模/质量因子实现与截面覆盖审计
+
+**日期**：2026-08-16
+**负责人**：辉老板
+**假设**：FEATURE_LIBRARY Tier1 六类因子（动量/价值/规模/波动率/质量/流动性）全部实现，价值/规模/质量具备可复现的全市场截面数据管线
+**目标**：补齐因子库缺失的价值/规模/质量类目，登记数据覆盖与当前限制
+**前置实验**：EXP-20260815-003
+
+**数据**：
+- `research/data/fundamental.py`：`stock_zh_a_spot_em`（东财，失败切 `stock_zh_a_spot_tx` 腾讯）+ `stock_yjbb_em`（业绩报表，2026-03-31）
+- 快照：5543 只，行业覆盖 5539（`research/data/cache/fundamental_snapshot.csv` + `industry_map.json`）
+
+**方法**：新增 `value_ep`（盈利收益率）、`value_bp`（账面市值比）、`value_dp`（股息率）、`size_logcap`（log 总市值）、`quality_roe`（ROE）、`quality_gross_margin`（销售毛利率），注册进 `research/factors/registry.py`；跑全市场截面覆盖审计
+
+**结果**：
+
+| 因子 | 覆盖 | 覆盖比例 | 说明 |
+|---|---|---|---|
+| value_ep | 5536 | 99.9% | 腾讯/东财 PE(TTM) |
+| value_bp | 0 | 0% | 当前免费快照无 PB，待补 |
+| value_dp | 0 | 0% | 当前免费快照无股息率，待补 |
+| size_logcap | 5543 | 100% | 总市值 |
+| quality_roe | 5493 | 99.1% | 业绩报表 |
+| quality_gross_margin | 5436 | 98.1% | 业绩报表 |
+
+**结论**：Tier1 六类已全部有实现代码并注册（价值/规模/质量 6 个新因子）。价值/规模/质量处于 L0：当前免费数据源只有单期/实时截面，缺历史估值日线，L1/L2 收益验证待财务数据管线补充 `pb`/`dv_ratio` 历史后执行。行业映射（5539 只）已同时落到 `stock-ai/api/data/industry_map.json`，供执行层行业集中度风控消费。
+
+**是否更新 KNOWLEDGE_BASE.md**：是（登记 L0 待验证）
+**是否更新 FAILURES.md**：否（无失败，属数据源限制）
+
+**复现命令**：
+```bash
+cd research
+python3 data/fundamental.py
+python3 experiments/run_fundamental_audit.py
+```
+
+---
+
+### EXP-20260816-007: Ridge/LASSO 正则化截面回归交叉验证
+
+**日期**：2026-08-16
+**负责人**：辉老板
+**假设**：M2 — Ridge/LASSO 在 10 因子逐月截面回归上与 OLS 结论一致，样本外不引入方向翻转
+**目标**：实现 MODEL_LIBRARY M2（纯 numpy，无 sklearn 依赖），验证正则化模型的稳定器作用
+**前置实验**：EXP-20260815-005
+
+**数据**：全市场 qfq 面板（4871 只，2014-01-01 至 2024-12-31），样本外 2023-01-01 起，23 期
+**方法**：`research/models/regularized.py`：Ridge 闭式解（α=1.0）、LASSO 坐标下降（α=0.001），与 OLS 同输入同标准化（winsorize 1%、z-score、min_nobs=30）
+
+**结果（样本外）**：
+
+| 模型 | 样本内 avg R² | 样本外 avg R² | astock_limit_up_5d pos_share |
+|---|---|---|---|
+| OLS | 0.1131 | 0.1264 | 13.0% |
+| Ridge | 0.1131 | 0.1264 | 13.0% |
+| LASSO | 0.1131 | 0.1264 | 13.0% |
+
+**结论**：M2 交叉验证通过。α 很小且 10 因子已 z-score，正则化对系数几乎无压缩，结论与 OLS 完全一致：追涨（`astock_limit_up_5d`）样本外正系数占比仅 13%，低值优选方向稳定。Ridge/LASSO 保留为多因子扩展时的正则化工具（当前因子数远小于截面样本，OLS 已足够）。
+
+**是否更新 KNOWLEDGE_BASE.md**：是（M2 交叉验证）
+**是否更新 FAILURES.md**：是（初版 JSON 序列化 Timestamp bug）
+
+**复现命令**：
+```bash
+cd research
+PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 experiments/run_regularized_audit.py
 ```

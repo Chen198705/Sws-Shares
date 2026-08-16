@@ -37,13 +37,15 @@ python3 run_experiment.py --config configs/_smoke.yaml
 | 模块 | 说明 |
 |---|---|
 | `data/` | AKShare 数据管线（东财+新浪兜底）、全市场 qfq 拉取、本地缓存、质量校验、universe |
-| `factors/` | 10 个因子：动量/波动率/流动性/A 股特色（涨停计数、60d 最大回撤） |
+| `factors/` | 16 个因子：动量/波动率/流动性/价值/规模/质量/A 股特色（涨停计数、60d 最大回撤） |
+| `models/` | GARCH / OLS / Ridge / LASSO 模型库（M1/M2/M3） |
+| `data/` | AKShare 数据管线 + 基本面快照（估值/业绩/行业映射） |
 | `backtest/` | 月度再平衡、T+1、涨跌停不可成交、交易成本、绩效/IC 指标 |
 | `baselines/` | BL1 随机游走 / BL2 历史均值 / BL3 等权 / BL4 简单动量 |
 | `regime/` | 规则法 + 2 状态高斯 HMM 市场状态识别，输出历史 regime |
 | `monitor/` | 因子拥挤度监控（夏普衰减/波动放大/收益转负） |
 | `attribution/` | 从 trading_log.db 只读聚合平仓归因 |
-| `robustness/` | 参数敏感性检验（top_quantile / min_listed_days ±20%） |
+| `robustness/` | 参数敏感性检验 + 真实持仓压力测试 |
 | `daily_refresh.py` | 收盘后一键刷新：regime → crowding → 契约 → 归因 |
 | `configs/` | 实验配置 |
 | `experiments/` | 实验报告与记录（`metrics.json` / `report.md` / 净值） |

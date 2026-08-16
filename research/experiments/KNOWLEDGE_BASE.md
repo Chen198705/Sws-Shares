@@ -60,3 +60,16 @@
 - 结论：✅ 交叉验证通过。10 因子逐月截面 OLS 与 rank IC 方向一致：低波动/低换手/低回撤为“低值优”，样本外 `mom_1` 与 `astock_limit_up_5d` 仍显著为负。
 - 新增证据：`astock_limit_up_5d` 样本外 t=-5.10、正系数占比仅 13%，追涨是稳定的负 alpha；`liq_amihud_20d` 样本内正显著但样本外 t=0.95，维持待定。
 - 执行层：维持现有低值优选 + 追涨减分约束，无需改参数；下次因子重验时 OLS 作为必跑交叉证据。
+
+### Tier1 价值/规模/质量因子（EXP-20260816-006）
+
+- 状态：✅ 已实现并注册，L0 待历史数据验证。Tier1 六类（动量/价值/规模/波动率/质量/流动性）全部有代码与全市场截面管线。
+- 新因子：`value_ep`、`value_bp`、`value_dp`、`size_logcap`、`quality_roe`、`quality_gross_margin`；快照 5543 只，行业映射 5539 只。
+- 数据限制：免费快照源缺历史 `pb`/`dv_ratio` 日线，`value_bp`/`value_dp` 当前覆盖 0%；L1/L2 验证需补历史估值数据。
+- 执行层用途：快照同时生成 `stock-ai/api/data/industry_map.json`，行业集中度风控直接消费。
+
+### 模型库结论：Ridge/LASSO 正则化审计（EXP-20260816-007，M2）
+
+- 结论：✅ 交叉验证通过。4871 只、23 期样本外截面，Ridge/LASSO 与 OLS 结论完全一致：`astock_limit_up_5d` 样本外正系数占比 13%，追涨负 alpha 稳定；低值优选方向不变。
+- 实现：`research/models/regularized.py`（纯 numpy 闭式解/坐标下降，无 sklearn 依赖）。
+- 执行层：当前因子数与截面样本比下 OLS 足够；多因子扩展（因子数 > 50）时启用 Ridge/LASSO 作为正则化交叉口径。

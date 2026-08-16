@@ -35,6 +35,7 @@ from strategy_store import (
     get_account_peak, update_account_peak, get_circuit_break_until, set_circuit_break,
     close_attribution_for_code,
 )
+from industry_map import sector_concentration_ok
 from iteration_engine import run_iteration
 from market_scanner import scan_market, log_scan_result
 
@@ -438,6 +439,12 @@ def execute_decision(decision, broker):
         vol = int(desired / price / 100) * 100
         if vol < 100:
             print(f"  [{code}] 买入金额过小")
+            return
+        status = get_trading_status()
+        ok, ind, same_val, limit_val = sector_concentration_ok(
+            code, vol * price, status.get("positions", []), total)
+        if not ok:
+            print(f"  [{code}] 行业集中度超限 [{ind}] 同行业 ¥{same_val:,.0f}+本次 ¥{vol*price:,.0f} > ¥{limit_val:,.0f} (30%)")
             return
         if desired >= single_cap - 1:
             print(f"  [{code}] 触达单票上限 {params.max_position_size:.0%}")

@@ -138,16 +138,17 @@
 - ⏳ 全市场 + 前复权重跑（EXP-20260815-002）
 
 ### P1（研究层→信号层注入）
-- ✅ 因子库 10 个（动量/低波动/流动性/涨停计数/60d 回撤）
+- ✅ 因子库 16 个（动量/低波动/流动性/价值/规模/质量/涨停计数/60d 回撤）
 - ✅ Regime 规则法 + HMM 标记 2014-2024
 - ✅ 生成 `strategy_params` 注入 trading_bot（保持参数可回滚）
 - ✅ 执行层风控：单票 ≤5%、账户回撤熔断（-20% 暂停 30 天 / -30% 暂停 90 天）、研究层因子约束
-- ⏳ 平仓归因聚合：因子贡献 vs LLM 贡献
+- ✅ 行业集中度：单一行业持仓 ≤ 总仓位 30%（`industry_map.py` + 东财业绩报表行业快照）
+- ✅ 平仓归因聚合：FIFO 对账口径已修通（`reconcile_closed_trades`），历史卖单进入归因统计
 
 ### P2（归因闭环）
-- 平仓归因聚合：因子贡献 vs LLM 贡献
-- 因子拥挤度监控
-- 研究层结论自动进入 dashboard（只读展示）
+- ✅ 平仓归因聚合：因子贡献 vs LLM 贡献（统计口径已落地）
+- ✅ 因子拥挤度监控（`research/monitor/crowding.py`）
+- ✅ 研究层结论自动进入 dashboard（`/api/research/status` 只读展示）
 
 ## 7. 红线
 
@@ -185,13 +186,21 @@ research/
 ## 8.2 落地状态（2026-08-16）
 
 - 模型库：`research/models/garch.py`（GARCH/GJR，H6 不采用）、
-  `research/models/ols_factor.py`（逐月截面 OLS + Newey-West t）
+  `research/models/ols_factor.py`（逐月截面 OLS + Newey-West t）、
+  `research/models/regularized.py`（Ridge 闭式解 + LASSO 坐标下降，M2）
+- 因子库：新增 Tier1 价值/规模/质量 6 因子（`value_ep` / `value_bp` / `value_dp` /
+  `size_logcap` / `quality_roe` / `quality_gross_margin`），共 16 因子
+- 基本面管线：`research/data/fundamental.py` 生成全市场快照
+  （5543 只，估值 + 业绩 + 行业映射），行业映射落到 `stock-ai/api/data/industry_map.json`
 - 稳健性：`research/robustness/stress_test.py` 已支持自动读取模拟账户，
   真实持仓 68.1% 敞口下四类压力测试最大回撤 -20.0%（2015 股灾口径），
   未触发 40% 强制降仓，输出 `robustness/scenarios/latest_stress_test.json`
-- 实验：EXP-20260815-004（GARCH，不通过）、EXP-20260815-005（OLS，交叉验证通过）
-- 执行层：`strategy_store.py` 账户峰值/熔断，`trading_bot.py` 单票 5% 上限与
-  回撤熔断，`market_scanner.py` 消费研究层因子约束
+- 实验：EXP-20260815-004（GARCH，不通过）、EXP-20260815-005（OLS，交叉验证通过）、
+  EXP-20260816-006（Tier1 因子 L0 截面审计）、EXP-20260816-007（Ridge/LASSO，交叉验证通过）
+- 执行层：`strategy_store.py` 账户峰值/熔断 + 研究层风险上限映射
+  （`max_total_position` 按 regime 自适应：牛 100% / 震荡 70% / 熊 50% / 不明 40%），
+  `trading_bot.py` 单票 5% 上限、回撤熔断、行业集中度 ≤30% 买入拦截，
+  `market_scanner.py` 消费研究层因子约束
 - 运行环境：Studio venv 已补 `arch`、`statsmodels`；API/trading_bot 已重启生效
 
 ## 9. 演进原则

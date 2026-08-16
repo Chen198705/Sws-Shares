@@ -6,6 +6,9 @@ from research.factors.momentum import mom_12_1, mom_6_1, mom_1
 from research.factors.volatility import vol_60d_realized, vol_20d_atr
 from research.factors.liquidity import liq_20d_turnover, liq_20d_amt, liq_amihud_20d
 from research.factors.astock import astock_limit_up_5d, astock_maxdd_60d
+from research.factors.value import value_ep, value_bp, value_dp
+from research.factors.size import size_logcap
+from research.factors.quality import quality_roe, quality_gross_margin
 
 
 FACTOR_FUNCS = {
@@ -19,6 +22,12 @@ FACTOR_FUNCS = {
     "liq_amihud_20d": liq_amihud_20d,
     "astock_limit_up_5d": astock_limit_up_5d,
     "astock_maxdd_60d": astock_maxdd_60d,
+    "value_ep": value_ep,
+    "value_bp": value_bp,
+    "value_dp": value_dp,
+    "size_logcap": size_logcap,
+    "quality_roe": quality_roe,
+    "quality_gross_margin": quality_gross_margin,
 }
 
 
