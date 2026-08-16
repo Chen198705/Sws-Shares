@@ -58,6 +58,23 @@
 | 压力测试 | 2015 股灾 / 2018 慢熊 / 2020 疫情 / 流动性枯竭情景，40% 回撤强制降仓 | 生产使用 |
 | 拥挤度监控 | 因子收益夏普、波动、相关性突变 | 每日刷新 |
 
+### 关键数学公式
+
+- 因子 IC：`IC_t = Spearman(因子值_t, 未来1月收益_t+1)`；
+  逐月 IC 序列显著性 `t = mean(IC) / (std(IC) / sqrt(n))`。
+- 截面回归：`R_i,t+1 = alpha + Σ_k beta_k * f_k,i,t + eps_i,t`，
+  逐月系数聚合后用 Newey-West t 检验。
+- Ridge / LASSO：`min ||y - Xb||² + λ·||b||₂²` / `min ||y - Xb||² + λ·||b||₁`。
+- CAR 事件研究：`AR_i,τ = R_i,τ - (alpha_i + beta_i·R_m,τ)`；
+  `AAR_τ = mean(AR_τ)`，窗口 CAR = Σ AAR，
+  `t = CAR / (std(AAR) / sqrt(n_days))`，BH 多重检验校正后判定。
+- Regime：规则法 `MA20 vs MA60` + 波动率阈值；HMM 为 2 状态高斯
+  （k-means 初始化 + 前向-后向 EM）。
+- 仓位：`min(总资产×目标仓位, 可新增上限, 单票上限)`，向下取整到 100 股。
+- 回撤止盈：峰值 `peak >= activate` 且 `pnl_pct <= peak - drawdown` 时落袋。
+- 全市场打分：`score = Σ_k w_k · factor_k`，叠加规则约束
+  （低换手加分、追涨停减分、PB 低估值加分等）。
+
 ### 信号层与执行层
 
 - 技术指标：MA5/MA20、RSI、MACD、KDJ、量比、换手率（`market_data.py`）。
