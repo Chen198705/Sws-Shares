@@ -172,36 +172,106 @@ def close_attribution(trade_id: int, pnl: float, closed_reason: str = ""):
     c.close()
 
 
-def get_closed_trades_for_review(limit: int = 50, strategy_type: str = None) -> list:
+def close_attribution_for_code(code: str, pnl: float, closed_reason: str = "",
+                               volume: Optional[int] = None) -> int:
+    """按股票代码 FIFO 关闭未平仓归因；盈亏按卖出数量比例分摊。"""
     c = _conn()
-    if strategy_type:
-        c.execute("""SELECT ta.id,ta.strategy_type,ta.ai_reason,ta.market_context,
-            ta.entry_indicators,ta.pnl,ta.closed_reason,ta.closed_at,
-            t.code,t.direction,t.price,t.volume
-            FROM trade_attribution ta JOIN trades t ON t.id=ta.trade_id
-            WHERE ta.closed=1 AND ta.strategy_type=? ORDER BY ta.closed_at DESC LIMIT ?""",
-            (strategy_type, limit))
-    else:
-        c.execute("""SELECT ta.id,ta.strategy_type,ta.ai_reason,ta.market_context,
-            ta.entry_indicators,ta.pnl,ta.closed_reason,ta.closed_at,
-            t.code,t.direction,t.price,t.volume
-            FROM trade_attribution ta JOIN trades t ON t.id=ta.trade_id
-            WHERE ta.closed=1 ORDER BY ta.closed_at DESC LIMIT ?""", (limit,))
-    cols = [d[0] for d in c.description]
-    rows = c.fetchall()
+    rows = c.execute("""
+        SELECT ta.id, t.volume FROM trade_attribution ta
+        JOIN trades t ON t.id = ta.trade_id
+        WHERE t.code = ? AND t.direction = 'buy' AND ta.closed = 0
+        ORDER BY ta.trade_id
+    """, (code,)).fetchall()
+    if not rows:
+        c.close()
+        return 0
+    total = volume if volume is not None else sum(r[1] or 0 for r in rows)
+    remaining = total
+    now = datetime.now().isoformat()
+    closed = 0
+    for ta_id, buy_vol in rows:
+        if remaining <= 0:
+            break
+        alloc = min(buy_vol or 0, remaining)
+        share = alloc / total if total else 0.0
+        c.execute(
+            "UPDATE trade_attribution SET closed=1,closed_at=?,pnl=?,closed_reason=? WHERE id=? AND closed=0",
+            (now, (pnl or 0.0) * share, closed_reason, ta_id))
+        c.commit()
+        closed += 1
+        remaining -= alloc
     c.close()
-    return [dict(zip(cols, r)) for r in rows]
+    return closed
+
+
+def reconcile_closed_trades() -> list:
+    """已平仓归因 = trades 卖单 FIFO 匹配全部带归因的买入（只读，不写库）。
+
+    以 trades 流水为唯一口径：DB 中 closed 标记仅作状态留痕，
+    聚合/复盘统一从这里推导，避免部分卖出时与写库状态重复或漏算。
+    """
+    c = _conn()
+    buys = c.execute("""
+        SELECT ta.id,ta.strategy_type,ta.ai_reason,ta.market_context,ta.entry_indicators,
+               t.code,t.price,t.volume
+        FROM trade_attribution ta JOIN trades t ON t.id = ta.trade_id
+        WHERE t.direction = 'buy' ORDER BY ta.trade_id""").fetchall()
+    sells = c.execute("""
+        SELECT ts,code,volume,pnl,reason FROM trades
+        WHERE direction = 'sell' ORDER BY id""").fetchall()
+    c.close()
+
+    pool = {}
+    for r in buys:
+        rec = {"id": r[0], "strategy_type": r[1], "ai_reason": r[2],
+               "market_context": r[3], "entry_indicators": r[4],
+               "code": r[5], "price": r[6], "volume": r[7], "remaining": r[7]}
+        pool.setdefault(rec["code"], []).append(rec)
+
+    closed = []
+    for ts, code, sell_vol, sell_pnl, reason in sells:
+        q = pool.get(code)
+        if not q:
+            continue
+        remaining = sell_vol
+        while q and remaining > 0:
+            b = q[0]
+            alloc = min(b["remaining"], remaining)
+            share = alloc / sell_vol if sell_vol else 0.0
+            closed.append({
+                "id": b["id"], "strategy_type": b["strategy_type"],
+                "ai_reason": b["ai_reason"], "market_context": b["market_context"],
+                "entry_indicators": b["entry_indicators"],
+                "pnl": (sell_pnl or 0.0) * share,
+                "closed_reason": reason or "卖出", "closed_at": ts,
+                "code": code, "direction": "buy", "price": b["price"], "volume": alloc,
+            })
+            b["remaining"] -= alloc
+            remaining -= alloc
+            if b["remaining"] <= 0:
+                q.pop(0)
+    closed.sort(key=lambda x: x["closed_at"] or "", reverse=True)
+    return closed
+
+
+def get_closed_trades_for_review(limit: int = 50, strategy_type: str = None) -> list:
+    records = reconcile_closed_trades()
+    if strategy_type:
+        records = [r for r in records if r["strategy_type"] == strategy_type]
+    return records[:limit]
 
 
 def get_strategy_summary() -> dict:
     """各策略类型汇总统计"""
-    c = _conn()
-    rows = c.execute("""SELECT strategy_type, COUNT(*) as cnt,
-        SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) as wins,
-        SUM(pnl) as net_pnl
-        FROM trade_attribution WHERE closed=1 GROUP BY strategy_type""").fetchall()
-    c.close()
-    return {r[0]: {"count": r[1], "wins": r[2], "net_pnl": r[3]} for r in rows}
+    out = {}
+    for r in reconcile_closed_trades():
+        st = r["strategy_type"] or "未知"
+        d = out.setdefault(st, {"count": 0, "wins": 0, "net_pnl": 0.0})
+        d["count"] += 1
+        if r["pnl"] > 0:
+            d["wins"] += 1
+        d["net_pnl"] += r["pnl"] or 0.0
+    return out
 
 
 def log_iteration(iteration_num: int, closed_count: int, insights: str,
@@ -217,9 +287,7 @@ def log_iteration(iteration_num: int, closed_count: int, insights: str,
 
 def should_iterate() -> tuple[bool, int]:
     p = load_params()
-    c = _conn()
-    cnt = c.execute("SELECT COUNT(*) FROM trade_attribution WHERE closed=1").fetchone()[0]
-    c.close()
+    cnt = len(reconcile_closed_trades())
     return cnt >= p.closed_trades_threshold, cnt
 
 

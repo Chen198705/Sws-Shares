@@ -30,9 +30,10 @@ def _get_bot_model():
 BOT_MODEL = _get_bot_model()
 from strategy_store import (
     init_schema as init_strategy_schema, load_params,
-    log_attribution, close_attribution, should_iterate, get_stop_take,
+    log_attribution, should_iterate, get_stop_take,
     get_effective_params, get_research_overlay,
     get_account_peak, update_account_peak, get_circuit_break_until, set_circuit_break,
+    close_attribution_for_code,
 )
 from iteration_engine import run_iteration
 from market_scanner import scan_market, log_scan_result
@@ -302,7 +303,7 @@ def check_positions(client, broker):
                 if order.status == "filled":
                     pnl = (order.filled_price - entry) * vol
                     tid = log_trade(code, "sell", order.filled_price, vol, pnl, reason, stype)
-                    close_attribution(tid, pnl, reason)
+                    close_attribution_for_code(code, pnl, reason, vol)
                     print(f"  [{code}] {reason}，盈亏 ¥{pnl:+.2f}")
                     _trailing_peak.pop(code, None)
                     action_taken = True
@@ -315,7 +316,7 @@ def check_positions(client, broker):
                 if order.status == "filled":
                     pnl = (order.filled_price - entry) * vol
                     tid = log_trade(code, "sell", order.filled_price, vol, pnl, reason, stype)
-                    close_attribution(tid, pnl, reason)
+                    close_attribution_for_code(code, pnl, reason, vol)
                     print(f"  [{code}] {reason}，盈亏 ¥{pnl:+.2f}")
                     _trailing_peak.pop(code, None)
                     action_taken = True
@@ -328,7 +329,7 @@ def check_positions(client, broker):
                 if order.status == "filled":
                     pnl = (order.filled_price - entry) * vol
                     tid = log_trade(code, "sell", order.filled_price, vol, pnl, reason, stype)
-                    close_attribution(tid, pnl, reason)
+                    close_attribution_for_code(code, pnl, reason, vol)
                     print(f"  [{code}] {reason}，盈亏 ¥{pnl:+.2f}")
                     _trailing_peak.pop(code, None)
                     action_taken = True
@@ -465,7 +466,7 @@ def execute_decision(decision, broker):
                     if order.status == "filled":
                         pnl = (order.filled_price - avg) * vol
                         tid = log_trade(code, "sell", order.filled_price, vol, pnl, "AI信号卖出", stype)
-                        close_attribution(tid, pnl, "AI信号卖出")
+                        close_attribution_for_code(code, pnl, "AI信号卖出", vol)
                         log_scan(code, "sell", 70, order.filled_price, "AI信号卖出", stype, 1)
                         print(f"  [{code}] 卖出成交 {vol}股 @¥{order.filled_price:.2f} 盈亏 ¥{pnl:+.2f}")
                         trigger_iteration()
@@ -514,7 +515,7 @@ def enforce_account_circuit_breaker(broker):
                     st = _horizon_label(getattr(pos, "horizon", "中线"))
                     tid = log_trade(pos.stock_code, "sell", order.filled_price,
                                     pos.volume, pnl, f"账户熔断({dd:.1%})", st)
-                    close_attribution(tid, pnl, f"账户熔断({dd:.1%})")
+                    close_attribution_for_code(pos.stock_code, pnl, f"账户熔断({dd:.1%})", pos.volume)
                     closed += 1
             except Exception as e:
                 print(f"  [{pos.stock_code}] 熔断清仓失败: {e}")

@@ -6,13 +6,15 @@
 import argparse
 import json
 import re
-import sqlite3
+import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "stock-ai" / "api"))
+import strategy_store
 DEFAULT_DB = ROOT / "stock-ai" / "api" / "logs" / "trading_log.db"
 DEFAULT_OUT = ROOT / "research" / "attribution" / "reports"
 
@@ -75,18 +77,11 @@ def aggregate(db_path: Path, out_dir: Path) -> dict:
             "# 平仓归因报告\n\n暂无已平仓交易。\n", encoding="utf-8")
         return empty
 
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
+    strategy_store.DB_PATH = db_path
     try:
-        rows = conn.execute(
-            """SELECT ta.strategy_type, ta.entry_indicators, ta.pnl, ta.closed_reason, ta.closed_at,
-                      t.code, t.direction, t.price, t.volume
-               FROM trade_attribution ta JOIN trades t ON t.id = ta.trade_id
-               WHERE ta.closed = 1"""
-        ).fetchall()
-    except sqlite3.OperationalError:
+        rows = strategy_store.reconcile_closed_trades()
+    except Exception:
         rows = []
-    conn.close()
     if not rows:
         empty = {
             "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -103,14 +98,14 @@ def aggregate(db_path: Path, out_dir: Path) -> dict:
 
     records = []
     for r in rows:
-        buckets = _bucket(r["entry_indicators"] or "")
+        buckets = _bucket(r.get("entry_indicators") or "")
         closed_at = r["closed_at"] or ""
         month = closed_at[:7] if len(closed_at) >= 7 else "未知"
         records.append({
             "code": r["code"],
             "strategy_type": r["strategy_type"] or "未知",
             "direction": r["direction"],
-            "pnl": r["pnl"] or 0.0,
+            "pnl": r.get("pnl") or 0.0,
             "closed_reason": r["closed_reason"] or "未知",
             "month": month,
             **buckets,
