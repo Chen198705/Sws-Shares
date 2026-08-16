@@ -130,6 +130,7 @@ def get_research_overlay() -> dict:
         "confidence": data.get("confidence"),
         "regime": data.get("regime"),
         "factor_constraints": data.get("factor_constraints"),
+        "policy_factors": data.get("policy_factors"),
         "risk_limits": data.get("risk_limits"),
         "horizon_weights": data.get("horizon_weights"),
     }

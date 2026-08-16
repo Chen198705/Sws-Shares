@@ -2,11 +2,61 @@
 AI 客户端 - oMLX在线时调用本地模型，离线时降级到规则引擎
 """
 import os
+import csv
+from datetime import datetime, timedelta
+from pathlib import Path
 import requests
 from config import OLLAMA_BASE_URL, OLLAMA_API_KEY, OLLAMA_MODEL
 from rule_engine import analyze as rule_analyze
 from research_snapshot import value_bp_metric
 from strategy_store import get_research_overlay
+
+
+_POLICY_WINDOW_DAYS = 5
+
+
+def _recent_policy_types(days: int = _POLICY_WINDOW_DAYS) -> set:
+    """返回最近 days 个自然日内有事件的 policy_type（v2 为最新事件登记）。"""
+    base = Path(__file__).resolve().parents[2] / "research" / "data"
+    p = base / "policy_events_v2.csv"
+    if not p.exists():
+        p = base / "policy_events.csv"
+    cutoff = datetime.now() - timedelta(days=days)
+    recent = set()
+    try:
+        with p.open(encoding="utf-8-sig") as f:
+            for row in csv.DictReader(f):
+                try:
+                    d = datetime.strptime(row["event_date"].strip(), "%Y-%m-%d")
+                except (ValueError, TypeError):
+                    continue
+                if d >= cutoff:
+                    recent.add(row["policy_type"].strip())
+    except Exception:
+        pass
+    return recent
+
+
+def _policy_overlay_text() -> str:
+    """研究层政策因子叠加提示：仅当权重>0 且对应事件在窗口内才注入（低频、不替代）。"""
+    try:
+        factors = get_research_overlay().get("policy_factors") or []
+        active = [f for f in factors if float(f.get("weight") or 0) > 0]
+        if not active:
+            return ""
+        recent = _recent_policy_types()
+        lines = []
+        for f in active:
+            ptype = f.get("policy_type") or ""
+            if ptype in recent:
+                car = float(f.get("mean_car") or 0)
+                lines.append(
+                    f"研究层政策因子 {f.get('id')}：{f.get('status')}，"
+                    f"CAR {car*100:+.2f}%，样本 {f.get('n_events')}，窗口内有 {ptype} 事件"
+                )
+        return "\n".join(lines)
+    except Exception:
+        return ""
 
 
 class OllamaClient:

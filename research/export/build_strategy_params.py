@@ -11,6 +11,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 FACTOR_STATE = ROOT / "export" / "factor_state.json"
+POLICY_STATE = ROOT / "export" / "policy_state.json"
 REGIME_STATE = ROOT / "export" / "regime_state.json"
 CROWDING = ROOT / "export" / "factor_crowding.json"
 REGIME_HISTORY = ROOT / "export" / "regime_history.csv"
@@ -60,6 +61,7 @@ def _regime_history_summary() -> dict:
 
 def build() -> dict:
     factor_state = json.loads(FACTOR_STATE.read_text()) if FACTOR_STATE.exists() else {"factors": []}
+    policy_state = json.loads(POLICY_STATE.read_text()) if POLICY_STATE.exists() else {"factors": []}
     regime_state = json.loads(REGIME_STATE.read_text()) if REGIME_STATE.exists() else {}
     crowding = json.loads(CROWDING.read_text()) if CROWDING.exists() else {}
     metrics = regime_state.get("metrics", {})
@@ -79,6 +81,7 @@ def build() -> dict:
             },
         },
         "factor_constraints": factor_state.get("factors", []),
+        "policy_factors": policy_state.get("factors", []),
         "crowding": crowding.get("factors", {}),
         "risk_limits": _risk_limits(regime_label),
         "horizon_weights": _horizon_weights(regime_label),

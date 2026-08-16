@@ -30,6 +30,13 @@ def main() -> None:
     vb = next((f for f in factors if f["id"] == "value_bp"), None)
     check(vb is not None and vb.get("weight", 0) > 0, "value_bp 权重", str(vb and vb.get("weight")))
     check("通过" in (vb or {}).get("status", "") or "有效" in (vb or {}).get("status", ""), "value_bp 状态", (vb or {}).get("status", ""))
+
+    pf = contract.get("policy_factors") or []
+    check(len(pf) >= 5, "政策因子契约", f"{len(pf)} factors")
+    p1 = next((f for f in pf if f["id"] == "policy_industry_plan_car5"), None)
+    check(p1 is not None and "候选" in (p1 or {}).get("status", ""), "policy_industry_plan_car5 登记",
+          str(p1 and p1.get("status")))
+    check(float(p1.get("weight") or 0) == 0.0, "政策因子权重 0（待决策启用，不改变实盘）")
     rl = contract.get("risk_limits") or {}
     check(all(k in rl for k in ("max_position_pct", "min_cash_pct", "single_stock_pct")), "风险上限契约")
     check(bool(contract.get("horizon_weights")), "周期权重契约")
@@ -46,6 +53,9 @@ def main() -> None:
     from ai_client import _value_factor_line
     line = _value_factor_line("600519")
     check("研究层价值因子" in line, "AI 提示词注入", line.strip())
+
+    from ai_client import _policy_overlay_text
+    check(_policy_overlay_text() == "", "政策叠加未激活（权重 0）")
 
     from market_scanner import score_stock
     ind = {"量比": 1.2, "RSI(14)": 55, "MACD金叉": False, "KDJ金叉": False,

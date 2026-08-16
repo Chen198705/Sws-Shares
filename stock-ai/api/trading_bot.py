@@ -12,7 +12,7 @@ from market_data import (
     get_all_indices, get_stock_realtime, get_stock_history,
     calc_indicators, get_turnover_rate, build_entry_indicators,
 )
-from ai_client import OllamaClient
+from ai_client import OllamaClient, _policy_overlay_text
 from broker_adapter import get_broker
 from trader import get_trading_status
 import stock_report
@@ -359,6 +359,8 @@ def analyze_and_decide(client, broker, code):
 
         if client.is_alive():
             params = get_effective_params()
+            policy_hint = _policy_overlay_text()
+            policy_block = f"\n{policy_hint}\n" if policy_hint else ""
             prompt = f"""股票：{stock.get('股票名', code)}（{code}）
 当前价：{stock['最新价']} 涨跌幅：{stock['涨跌幅']:+.2f}%
 今开={stock['今开']} 最高={stock['最高']} 最低={stock['最低']}
@@ -369,6 +371,7 @@ K={ind['K']:.1f} D={ind['D']:.1f} J={ind['J']:.1f} KDJ金叉={ind['KDJ金叉']} 
 量比={ind['量比']:.2f} 成交量状态={ind['成交量状态']} 换手率={turnover:.2f}%
 大盘：{mkt}
 当前大盘环境：{regime}（{weights}）
+{policy_block}
 本只候选股的最终策略类型必须为：{horizon_label}
 总资产约100万，短线止损{params.short_stop_loss*100:.0f}%止盈{params.short_take_profit*100:.0f}%，中线止损{params.mid_stop_loss*100:.0f}%止盈{params.mid_take_profit*100:.0f}%，长线止损{params.long_stop_loss*100:.0f}%止盈{params.long_take_profit*100:.0f}%
 

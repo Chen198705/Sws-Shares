@@ -2,7 +2,7 @@
 AI 驱动的市场分析器
 """
 import json
-from ai_client import OllamaClient
+from ai_client import OllamaClient, _policy_overlay_text
 from market_data import (
     get_all_indices,
     get_stock_realtime,
@@ -143,6 +143,7 @@ def analyze_stock(stock_code: str) -> dict:
 
 ## 研究层因子
 {_value_factor_line(stock_code)}
+{_policy_overlay_text()}
 
 请分析这只股票，给出：
 1. 技术面分析（均线、MACD、RSI解读）

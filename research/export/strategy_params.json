@@ -1,6 +1,6 @@
 {
   "version": "2026-08-16.1",
-  "generated_at": "2026-08-16T10:35:23",
+  "generated_at": "2026-08-16T11:23:28",
   "confidence": "L1",
   "regime": {
     "state": "🌊 震荡市",
@@ -176,6 +176,86 @@
       "weight": 0.0,
       "last_verified": "2026-08-16",
       "note": "EXP-009 全市场 4871：OOS IC t=-0.83 不显著"
+    }
+  ],
+  "policy_factors": [
+    {
+      "id": "policy_industry_plan_car5",
+      "policy_type": "industry_plan",
+      "status": "L1 候选",
+      "weight": 0.0,
+      "last_verified": "2026-08-16",
+      "n_events": 5,
+      "mean_car": 0.023012,
+      "direction_consistency": 0.8,
+      "rejection_rate_bh": 0.8,
+      "decision": "入模候选（权重待 Claude 决策启用）",
+      "note": "EXP-011：5 样本、方向一致 80%、BH 显著率 80%、CAR +2.30%"
+    },
+    {
+      "id": "policy_industry_plan_car20",
+      "policy_type": "industry_plan",
+      "status": "待观察",
+      "weight": 0.0,
+      "last_verified": "2026-08-16",
+      "n_events": 5,
+      "mean_car": 0.0668,
+      "direction_consistency": 0.6,
+      "rejection_rate_bh": 0.6,
+      "decision": "不启用（方向一致 60% < 80%）",
+      "note": "car20 方向一致仅 60%，未达入模门槛，待观察"
+    },
+    {
+      "id": "policy_rrr_cut_car5",
+      "policy_type": "mp_rrr_cut",
+      "status": "拒入",
+      "weight": 0.0,
+      "last_verified": "2026-08-16",
+      "n_events": 16,
+      "mean_car": -0.024907,
+      "direction_consistency": 0.4375,
+      "rejection_rate_bh": 0.4375,
+      "decision": "拒入",
+      "note": "EXP-011：16 样本、方向一致 43.8%，与预期相反（F-20260816-001）"
+    },
+    {
+      "id": "policy_lpr_cut_car5",
+      "policy_type": "mp_lpr_cut",
+      "status": "拒入",
+      "weight": 0.0,
+      "last_verified": "2026-08-16",
+      "n_events": 4,
+      "mean_car": -0.011086,
+      "direction_consistency": 0.5,
+      "rejection_rate_bh": 0.5,
+      "decision": "拒入",
+      "note": "EXP-011：4 样本、方向一致 50%，未达入模门槛"
+    },
+    {
+      "id": "policy_rate_cut_car5",
+      "policy_type": "mp_rate_cut",
+      "status": "样本不足",
+      "weight": 0.0,
+      "last_verified": "2026-08-16",
+      "n_events": 3,
+      "mean_car": 0.011486,
+      "direction_consistency": 0.6667,
+      "rejection_rate_bh": 0.6667,
+      "decision": "样本不足，不启用",
+      "note": "EXP-011：3 样本，无法入模"
+    },
+    {
+      "id": "policy_ipo_suspend_signal",
+      "policy_type": "ipo_suspend",
+      "status": "样本不足",
+      "weight": 0.0,
+      "last_verified": "2026-08-16",
+      "n_events": 1,
+      "mean_car": -0.05512,
+      "direction_consistency": 0.0,
+      "rejection_rate_bh": 0.0,
+      "decision": "样本不足，不启用",
+      "note": "EXP-011：暂停/重启各 1 样本，无法入模"
     }
   ],
   "crowding": {
