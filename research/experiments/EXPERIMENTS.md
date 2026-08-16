@@ -420,3 +420,53 @@ PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 experiments/run_fundamental_
 cd research
 PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 experiments/run_l2_audit.py
 ```
+
+---
+
+### EXP-20260816-011: 政策事件事件研究（CAR + BH 校正）
+
+**日期**：2026-08-16
+**负责人**：辉老板
+**假设**：H9 降准 / H10 降息 / H11 印花税下调在事件窗口存在方向性 CAR（来自
+`/Users/chenjianhui/Claude/Projects/Stocks/RESEARCH.md`）
+**目标**：对预注册政策清单 v1 的每类政策做事件研究，按 POLICY_EVENTS.md 决定入模/拒入
+**前置实验**：EXP-001~010（数据管线、因子库、回测引擎）
+
+**数据**：全市场 4871 只 qfq + 上证指数（`index_sh000001.csv`，缓存无 000300.SH，
+基准偏差已记录在 DECISIONS.md D-007）；事件清单 `research/data/policy_events.csv` v1（35 条）
+**方法**：`research/experiments/run_policy_event_study.py`
+- 市场模型估计窗口 [-120,-35]（剔除事件前 5 日防污染）
+- 事件窗口 [-1,+5] 主检验，另输出 [-1,+1] / [-5,+5] / [-5,+20]
+- 逐事件横截面 AAR 聚合 CAR，t = CAR / (std(AAR)/sqrt(n_days))
+- 单边 p 按类型预期方向；类型内 BH 校正；缺失数据剔除不填 0
+- 入模条件：样本≥5（部分类型 3）、方向一致率≥80%、BH 显著率≥50%（alpha=0.10）
+
+**结果（主窗口 [-1,+5]，真实数据）**：
+
+| 政策类型 | 样本 | mean CAR | 方向一致 | BH 显著率 | 决策 |
+|---|---|---|---|---|---|
+| industry_plan | 5 | +2.30% | 80% | 80% | ✅ L1 候选入模 |
+| mp_rrr_cut | 16 | -2.49% | 43.8% | 43.8% | ❌ 拒入 |
+| mp_rate_cut | 3 | +1.15% | 66.7% | 66.7% | ⚠️ 样本不足 |
+| mp_lpr_cut | 4 | -1.11% | 50% | 50% | ❌ 拒入 |
+| mp_rrr_cut+broad | 1 | +4.11% | 100% | 100% | ⚠️ 样本不足 |
+| tax_change | 1 | +1.44% | 100% | 100% | ⚠️ 样本不足 |
+| ipo_suspend | 1 | -5.51% | 0% | 0% | ⚠️ 样本不足 |
+| ipo_resume | 1 | +0.31% | 0% | 0% | ⚠️ 样本不足 |
+
+**结论（L1）**：`policy_industry_plan_car5` 为唯一 L1 候选入模（5 样本、方向一致 80%、
+BH 显著率 80%，mean CAR +2.30%）；`policy_industry_plan_car20` 方向一致仅 60%，待观察。
+降准（16 样本）与 LPR（4 样本）真实数据拒入，写入 FAILURES.md（F-20260816-001）。
+单样本类型全部样本不足，不做方向推断。所有决策只看 BH 校正后结果。
+
+**是否更新 KNOWLEDGE_BASE.md**：是
+**是否更新 FAILURES.md**：是（降准正向 CAR 假设未通过）
+
+**复现命令**：
+```bash
+cd research
+PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 experiments/run_policy_event_study.py
+```
+
+**结果文件**：`experiments/EXP-20260816-011/results/`（car_per_event.csv /
+car_summary.csv / summary.json / report.md / events_detail.csv）

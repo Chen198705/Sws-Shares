@@ -1,0 +1,210 @@
+{
+  "experiment": "EXP-20260816-011",
+  "generated_at": "2026-08-16T11:15:24",
+  "events_version": "v1",
+  "events_path": "/Users/chenjianhui/AI/Sws-Shares/research/data/policy_events.csv",
+  "data_snapshot": "2026-08-16 cache",
+  "market_proxy": "index_sh000001 (上证指数；config 默认 000300.SH 但缓存无此文件)",
+  "method": "market model CAR, est [-120,-35], primary window [-1,+5], BH 校正",
+  "acceptance": {
+    "min_samples": 5,
+    "direction_consistency_min": 0.8,
+    "alpha_bh": 0.1,
+    "rejection_rate_min": 0.5
+  },
+  "summaries": {
+    "industry_plan": {
+      "policy_type": "industry_plan",
+      "name": "产业规划",
+      "n_events": 5,
+      "mean_car": 0.023012,
+      "median_car": 0.011988,
+      "std_car": 0.03334,
+      "direction_consistency": 0.8,
+      "rejection_rate_bh": 0.8,
+      "raw_p_values": [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "bh_adjusted_p_values": [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "decision": "入模",
+      "decision_reason": "样本 5、方向一致率 80.0%、BH 显著率 80.0%"
+    },
+    "ipo_resume": {
+      "policy_type": "ipo_resume",
+      "name": "IPO重启",
+      "n_events": 1,
+      "mean_car": 0.003143,
+      "median_car": 0.003143,
+      "std_car": 0.0,
+      "direction_consistency": 0.0,
+      "rejection_rate_bh": 0.0,
+      "raw_p_values": [
+        0.7297
+      ],
+      "bh_adjusted_p_values": [
+        0.7297
+      ],
+      "decision": "样本不足",
+      "decision_reason": "样本数 1 < 最低要求 3，无法入模"
+    },
+    "ipo_suspend": {
+      "policy_type": "ipo_suspend",
+      "name": "IPO暂停",
+      "n_events": 1,
+      "mean_car": -0.05512,
+      "median_car": -0.05512,
+      "std_car": 0.0,
+      "direction_consistency": 0.0,
+      "rejection_rate_bh": 0.0,
+      "raw_p_values": [
+        0.991
+      ],
+      "bh_adjusted_p_values": [
+        0.991
+      ],
+      "decision": "样本不足",
+      "decision_reason": "样本数 1 < 最低要求 3，无法入模"
+    },
+    "mp_lpr_cut": {
+      "policy_type": "mp_lpr_cut",
+      "name": "LPR下调",
+      "n_events": 4,
+      "mean_car": -0.011086,
+      "median_car": 0.005368,
+      "std_car": 0.04751,
+      "direction_consistency": 0.5,
+      "rejection_rate_bh": 0.5,
+      "raw_p_values": [
+        0.0,
+        0.7086,
+        1.0,
+        0.0
+      ],
+      "bh_adjusted_p_values": [
+        0.0,
+        0.9448,
+        1.0,
+        0.0
+      ],
+      "decision": "拒入",
+      "decision_reason": "方向一致率 50.0% < 80%"
+    },
+    "mp_rate_cut": {
+      "policy_type": "mp_rate_cut",
+      "name": "央行降息",
+      "n_events": 3,
+      "mean_car": 0.011486,
+      "median_car": 0.048645,
+      "std_car": 0.064361,
+      "direction_consistency": 0.6667,
+      "rejection_rate_bh": 0.6667,
+      "raw_p_values": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "bh_adjusted_p_values": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "decision": "样本不足",
+      "decision_reason": "样本数 3 < 最低要求 5，无法入模"
+    },
+    "mp_rrr_cut": {
+      "policy_type": "mp_rrr_cut",
+      "name": "央行降准",
+      "n_events": 16,
+      "mean_car": -0.024907,
+      "median_car": -0.001503,
+      "std_car": 0.079985,
+      "direction_consistency": 0.4375,
+      "rejection_rate_bh": 0.4375,
+      "raw_p_values": [
+        0.0,
+        1.0,
+        1.0,
+        0.6322,
+        0.9813,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.7904,
+        0.0,
+        1.0,
+        0.8913,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "bh_adjusted_p_values": [
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        1.0,
+        1.0,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "decision": "拒入",
+      "decision_reason": "方向一致率 43.8% < 80%"
+    },
+    "mp_rrr_cut+broad": {
+      "policy_type": "mp_rrr_cut+broad",
+      "name": "mp_rrr_cut+broad",
+      "n_events": 1,
+      "mean_car": 0.041131,
+      "median_car": 0.041131,
+      "std_car": 0.0,
+      "direction_consistency": 1.0,
+      "rejection_rate_bh": 1.0,
+      "raw_p_values": [
+        0.0
+      ],
+      "bh_adjusted_p_values": [
+        0.0
+      ],
+      "decision": "样本不足",
+      "decision_reason": "样本数 1 < 最低要求 5，无法入模"
+    },
+    "tax_change": {
+      "policy_type": "tax_change",
+      "name": "印花税调整",
+      "n_events": 1,
+      "mean_car": 0.014432,
+      "median_car": 0.014432,
+      "std_car": 0.0,
+      "direction_consistency": 1.0,
+      "rejection_rate_bh": 1.0,
+      "raw_p_values": [
+        0.0012
+      ],
+      "bh_adjusted_p_values": [
+        0.0012
+      ],
+      "decision": "样本不足",
+      "decision_reason": "样本数 1 < 最低要求 3，无法入模"
+    }
+  },
+  "n_events_skipped": 3
+}

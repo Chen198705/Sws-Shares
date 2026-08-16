@@ -19,6 +19,12 @@
 | size_logcap | ⚠️ 边际负向 | L1 | 2026-08-16 | -0.071 | 小市值偏好方向，OOS t=-1.60 未达显著 |
 | quality_roe | ❌ 不显著 | L1 | 2026-08-16 | -0.010 | OOS IC t=-0.47 |
 | quality_gross_margin | ❌ 不显著 | L1 | 2026-08-16 | -0.015 | OOS IC t=-0.83 |
+| policy_rrr_cut_car5 | ❌ 拒入 | L1 | 2026-08-16 | -0.0249 | 16 样本，方向一致 43.8%（EXP-011） |
+| policy_rate_cut_car5 | ⚠️ 样本不足 | L1 | 2026-08-16 | +0.0115 | 3 样本，无法入模（EXP-011） |
+| policy_lpr_cut_car5 | ❌ 拒入 | L1 | 2026-08-16 | -0.0111 | 4 样本，方向一致 50%（EXP-011） |
+| policy_industry_plan_car5 | ✅ L1 候选 | L1 | 2026-08-16 | +0.0230 | 5 样本，方向一致 80%、BH 显著率 80%（EXP-011） |
+| policy_industry_plan_car20 | ⚠️ 待观察 | L1 | 2026-08-16 | +0.0668 | car20 方向一致 60% 未达入模（EXP-011） |
+| policy_ipo_suspend_signal | ⚠️ 样本不足 | L1 | 2026-08-16 | — | 暂停/重启各 1 样本（EXP-011） |
 
 ### mom_6_1: 6-1 月动量
 
