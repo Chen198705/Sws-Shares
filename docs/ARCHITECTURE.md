@@ -192,6 +192,16 @@ research/
   `size_logcap` / `quality_roe` / `quality_gross_margin`），共 16 因子
 - 基本面管线：`research/data/fundamental.py` 生成全市场快照
   （5543 只，估值 + 业绩 + 行业映射），行业映射落到 `stock-ai/api/data/industry_map.json`
+- 历史基本面管线：`research/data/fundamental_history.py` 断点续传
+  `stock_value_em`（2018 至今 PE(TTM)/PB/市值）与
+  `stock_financial_analysis_indicator`（季度 ROE/毛利率，按披露时限后移防前视），
+  支持多线程拉取；`value_dp` 因免费源无历史股息率保持 L0
+- 行业中性化：`research/factors/neutralize.py` 逐截面日有效子集重建行业哑变量并
+  剔除零方差列，修复秩亏溢出；`research/tests/test_neutralize.py` 合成测试通过
+- 回测铁律：买入以 entry 开盘价判涨跌停拦截；卖出跌停开盘顺延至多 10 个交易日；
+  成本含最低佣金 5 元、印花税、滑点、过户费；修复首期 NAV 吞收益 bug
+- 实验：EXP-20260816-008（行业中性化审计，H4）、EXP-20260816-009
+  （历史估值/质量因子 L1 截面审计），结果登记于 `research/experiments/`
 - 稳健性：`research/robustness/stress_test.py` 已支持自动读取模拟账户，
   真实持仓 68.1% 敞口下四类压力测试最大回撤 -20.0%（2015 股灾口径），
   未触发 40% 强制降仓，输出 `robustness/scenarios/latest_stress_test.json`

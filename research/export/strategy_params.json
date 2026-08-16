@@ -1,6 +1,6 @@
 {
   "version": "2026-08-16.1",
-  "generated_at": "2026-08-16T06:21:48",
+  "generated_at": "2026-08-16T09:40:21",
   "confidence": "L1",
   "regime": {
     "state": "🌊 震荡市",
@@ -134,6 +134,48 @@
       "weight": 0.1,
       "last_verified": "2026-08-15",
       "note": "EXP-20260815-003 60d低回撤样本外 +14.7%，夏普 0.70"
+    },
+    {
+      "id": "value_ep",
+      "status": "❌ 不显著",
+      "weight": 0.0,
+      "last_verified": "2026-08-16",
+      "note": "EXP-009 全市场 4871：OOS IC t=1.21 不显著，暂不参与选股"
+    },
+    {
+      "id": "value_bp",
+      "status": "✅ L1 通过",
+      "weight": 0.0,
+      "last_verified": "2026-08-16",
+      "note": "EXP-009 全市场 4871：OOS IC t=2.85、t(NW)=2.04，待 T-W4 纳入信号层"
+    },
+    {
+      "id": "value_dp",
+      "status": "⛔ 数据缺失",
+      "weight": 0.0,
+      "last_verified": "2026-08-16",
+      "note": "免费源无历史股息率日线，仅 L0 快照覆盖，暂不参与选股"
+    },
+    {
+      "id": "size_logcap",
+      "status": "⚠️ 边际负向",
+      "weight": 0.0,
+      "last_verified": "2026-08-16",
+      "note": "EXP-009 全市场 4871：小市值偏好，OOS t=-1.60 未达显著"
+    },
+    {
+      "id": "quality_roe",
+      "status": "❌ 不显著",
+      "weight": 0.0,
+      "last_verified": "2026-08-16",
+      "note": "EXP-009 全市场 4871：OOS IC t=-0.47 不显著"
+    },
+    {
+      "id": "quality_gross_margin",
+      "status": "❌ 不显著",
+      "weight": 0.0,
+      "last_verified": "2026-08-16",
+      "note": "EXP-009 全市场 4871：OOS IC t=-0.83 不显著"
     }
   ],
   "crowding": {
@@ -250,7 +292,9 @@
   },
   "risk_limits": {
     "max_position_pct": 0.7,
+    "max_total_position": 0.7,
     "single_stock_pct": 0.05,
+    "max_position_size": 0.05,
     "min_cash_pct": 0.3
   },
   "horizon_weights": {

@@ -18,7 +18,7 @@ def _standardize(x: np.ndarray) -> np.ndarray:
 
 def _ridge_fit(x: np.ndarray, y: np.ndarray, alpha: float) -> np.ndarray:
     n = x.shape[0]
-    x = np.column_stack([np.ones(n), _standardize(x)])
+    x = np.ascontiguousarray(np.column_stack([np.ones(n), _standardize(x)]))
     xtx = x.T @ x
     pen = np.eye(xtx.shape[0]) * alpha
     pen[0, 0] = 0.0
@@ -80,7 +80,9 @@ def cross_sectional_regularized(factor_mats: Dict[str, pd.DataFrame],
             beta = _lasso_fit(xv, yv, alpha)
         else:
             raise ValueError(f"unknown method: {method}")
-        pred = np.column_stack([np.ones(len(xv)), _standardize(xv)]) @ beta
+        pred = np.ascontiguousarray(
+            np.column_stack([np.ones(len(xv)), _standardize(xv)])
+        ) @ beta
         ss_res = float(np.sum((yv - pred) ** 2))
         ss_tot = float(np.sum((yv - yv.mean()) ** 2))
         row = {"date": d, "r2": 1 - ss_res / max(ss_tot, 1e-12),

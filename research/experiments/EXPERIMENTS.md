@@ -13,6 +13,8 @@
 | EXP-20260815-005 | M1: 多因子截面 OLS 样本外保持显著 | 🎯 完成（交叉验证） | 2026-08-16 |
 | EXP-20260816-006 | Tier1 价值/规模/质量因子实现与截面覆盖 | 🎯 完成（L0 待历史验证） | 2026-08-16 |
 | EXP-20260816-007 | M2: Ridge/LASSO 样本外交叉验证 | 🎯 完成（交叉验证） | 2026-08-16 |
+| EXP-20260816-008 | H4: 行业中性化后的因子比原始因子更稳健 | ❌ 不通过 | 2026-08-16 |
+| EXP-20260816-009 | H8: 历史估值/质量因子 L1 截面审计 | 🎯 完成（L1，全市场 4871） | 2026-08-16 |
 
 ---
 
@@ -302,4 +304,74 @@ python3 experiments/run_fundamental_audit.py
 ```bash
 cd research
 PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 experiments/run_regularized_audit.py
+```
+
+---
+
+### EXP-20260816-008: 行业中性化因子审计
+
+**日期**：2026-08-16
+**负责人**：辉老板
+**假设**：H4 — 行业中性化后的因子比原始因子更稳健
+**目标**：全市场 10 因子原始 vs 行业中性化 OLS/IC 对比，判断是否默认做行业中性化预处理
+**前置实验**：EXP-20260815-005
+
+**数据**：全市场 qfq 面板 4871 只，行业映射 4871/4871（128 个行业），2014-2024，样本外 2023-01-01 起
+**方法**：`research/factors/neutralize.py`：对每个横截面按行业哑变量回归取残差（逐日重建哑变量、剔除零方差列、显式 C 连续），与原始因子同口径比较 OLS 样本外 R² / 系数方向 / |IC|
+
+**结果（样本外）**：
+
+| 指标 | 原始 | 中性化 |
+|---|---|---|
+| OLS 样本外 R² | 0.1264 | 0.0741 |
+| 系数方向翻转 | - | 3/10 |
+| \|IC\| 改善因子数 | - | 1/10 |
+
+代表性因子：`mom_6_1` 中性化后 |IC| 增益 +0.0110 但方向翻转；`astock_limit_up_5d`、`liq_20d_amt` 的 |IC| 分别损失 -0.0394 / -0.0348。
+
+**结论**：H4 不通过。行业中性化在 A 股当前因子库上系统性降低样本外解释力，默认保留原始因子；中性化残差仅用于行业集中度风控输入，不作为因子预处理默认步骤。
+
+**是否更新 KNOWLEDGE_BASE.md**：是
+**是否更新 FAILURES.md**：是（视图污染 + 秩亏矩阵 + numpy matmul 三个实现 bug）
+
+**复现命令**：
+```bash
+cd research
+PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 experiments/run_neutralization_audit.py
+```
+
+---
+
+### EXP-20260816-009: 历史估值/质量因子 L1 截面审计
+
+**日期**：2026-08-16
+**负责人**：辉老板
+**假设**：H8 — 低估值（EP/BP）与质量（ROE/毛利率）因子在 A 股样本外有效
+**目标**：用历史 PE(TTM)/PB/总市值/季度 ROE/毛利率（披露时限后移）构建 5 个 Tier1 因子，做 OLS/Ridge/LASSO 截面交叉验证
+**前置实验**：EXP-20260816-006（快照实现）、EXP-20260816-007（正则化框架）
+
+**数据**：全市场 4871 只，估值 `stock_value_em` 2018 至今（0 失败）、财务 `stock_financial_analysis_indicator` 季度指标按披露时限后移（973 只无季度指标自然跳过），样本外 2023-01-01 起，23 期
+
+**结果（样本外，全市场 4871）**：
+
+| 因子 | OOS mean_coef | OOS positive_share | OOS t(NW) | OOS mean_IC | IC t |
+|---|---|---|---|---|---|
+| value_ep | 0.000748 | 60.9% | 0.32 | 0.0462 | 1.21 |
+| value_bp | 0.005714 | 65.2% | 2.04 | 0.0964 | 2.85 |
+| size_logcap | -0.003795 | 39.1% | -1.45 | -0.0705 | -1.60 |
+| quality_roe | -0.000282 | 52.2% | -0.33 | -0.0099 | -0.47 |
+| quality_gross_margin | -0.000227 | 47.8% | -0.16 | -0.0146 | -0.83 |
+
+Ridge/LASSO 与 OLS 方向完全一致（见 report.md）。
+
+**结论（L1）**：`value_bp`（PB 倒数）通过 L1：OOS 正系数占比 65.2%、t(NW)=2.04、IC t=2.85，是价值/规模/质量三类中唯一稳健的因子；`value_ep` 方向为正但不显著（IC t=1.21）；`quality_roe`、`quality_gross_margin` 不显著；`size_logcap` 呈负向（小市值偏好，IC t=-1.60）未达显著。`value_bp` 待 T-W4 纳入信号层权重。
+
+**是否更新 KNOWLEDGE_BASE.md**：是
+**是否更新 FAILURES.md**：是（免费源无历史股息率，value_dp 数据缺口）
+
+**复现命令**：
+```bash
+cd research
+PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 data/fundamental_history.py --workers 4
+PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 experiments/run_fundamental_history_audit.py
 ```

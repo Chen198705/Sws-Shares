@@ -56,3 +56,30 @@
 - 原因分析：因子矩阵是 (日期 × 股票)，跨因子拼接必须带 keys 构造 MultiIndex；回归前应把横截面转成 (股票 × 因子) 普通列
 - 教训：涉及 MultiIndex 列的统计计算，先做最小合成数据单测，再上全市场
 - 修复：`pd.concat(..., keys=factor_mats.keys())` 构造 MultiIndex，`cross_sectional_ols` 内转为 `(stock × factor)` DataFrame；本地合成 3 因子测试通过后重跑
+
+### 2026-08-16: 行业中性化秩亏/病态矩阵导致系数溢出
+
+- 实验：EXP-20260816-008 首跑与二跑
+- 现象：首跑 `resid = y - X @ beta` 报 `overflow` / `invalid value`；二跑“原始”与“中性化”两组系数/IC 逐位相同，中性化未生效
+- 原因分析（两个独立问题）：
+  1. `mat.loc[d].to_numpy()` 在 pandas 下可能返回底层数据的**视图**，`row[ok] = resid` 就地改写了传入的“原始”因子矩阵，`out` 拷贝又被写回相同残差，导致 raw 与 neutral 同源同值；
+  2. numpy 2.0.2 + macOS 下 `np.column_stack` 返回 F 连续数组，`X @ beta`（matmul）偶发 `divide by zero` 浮点异常，`np.dot` 正常；
+  3. 行业哑变量一次性按全列生成，某日某行业全缺失时保留常量列，`lstsq` 病态
+- 教训：`to_numpy()` 结果必须显式 `.copy()` 再就地修改；带类别哑变量的 OLS 按“截面有效子集”重建矩阵并剔除零方差列；矩阵运算前显式 `ascontiguousarray`；测试断言输入矩阵不被修改
+- 修复：`row = mat.loc[d].to_numpy(dtype=float).copy()`、逐日期生成哑变量并剔除 `std==0` 列、`X` 显式 C 连续；`test_neutralize.py` 增加输入不可变断言；EXP-008 三跑后中性化残差与原值 max_abs_diff=0.28、corr=0.75，确认真正生效
+
+### 2026-08-16: 回测 NAV 首期收益被吞掉
+
+- 实验：回测引擎 smoke（test_backtest_engine.py）
+- 现象：首期持仓日志 `period_ret=0.0047`，但 `nav=[1.0]` 恰好 1.000000
+- 原因分析：`nav.append(1.0 if not nav else nav[-1] * (1 + period_ret))` 首期直接 append 字面量 1.0，丢弃首期收益
+- 教训：NAV 更新必须 `prev_nav * (1 + period_ret)`，首期 prev_nav=1.0；恰好 1.0 的输出要用断言卡住
+- 修复：`prev_nav = 1.0 if not nav else nav[-1]; nav.append(prev_nav * (1 + period_ret))`，smoke 断言 `nav > 1.0`
+
+### 2026-08-16: 免费源无历史股息率日线（value_dp 数据缺口）
+
+- 实验：EXP-20260816-009 数据探源
+- 现象：`stock_zh_valuation_baidu` 的市盈率/股息率列返回 `NoneType` 错误；`stock_value_em` 无股息率列
+- 原因分析：免费 AKShare 源对历史股息率覆盖不完整，暂无法构建诚实的历史 `value_dp` 因子
+- 教训：数据缺失要登记为 L0 限制，不能拿快照值回填成历史序列
+- 处理：`value_ep/value_bp/size_logcap` 用 `stock_value_em` 历史管线；`value_dp` 保持 L0 快照覆盖，因子权重 0

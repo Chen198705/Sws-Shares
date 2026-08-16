@@ -20,6 +20,26 @@ def _limit_up_down(code: str, prev_close: float, cur_close: float) -> tuple[bool
     return chg >= limit - 0.005, chg <= -(limit - 0.005)
 
 
+def _next_sellable_open(open_: pd.DataFrame, prev_close_daily: pd.DataFrame,
+                        cal: pd.Index, code: str, start_idx: int,
+                        max_wait: int = 10) -> float:
+    """从 exit 日起顺延找第一个非跌停开盘价（跌停日无法卖出）。"""
+    for k in range(start_idx, min(len(cal), start_idx + max_wait)):
+        d = cal[k]
+        if d not in open_.index:
+            continue
+        o = open_.loc[d, code]
+        if pd.isna(o) or o <= 0:
+            continue
+        pc = prev_close_daily.loc[d, code] if d in prev_close_daily.index else np.nan
+        if pd.notna(pc) and pc > 0:
+            _, down = _limit_up_down(code, pc, o)
+            if down:
+                continue
+        return float(o)
+    return np.nan
+
+
 def build_matrices(panel: dict) -> dict:
     """把 panel 转成统一日历矩阵。"""
     frames = {}
@@ -42,6 +62,7 @@ def monthly_rebalance(
     min_price: float = 3.0,
     max_price: float = 500.0,
     ascending: bool = False,
+    initial_capital: float = 1_000_000.0,
 ):
     """月度再平衡、次日开盘成交、T+1 持有到下一期。返回组合净值/持仓/IC。"""
     mats = build_matrices(panel)
@@ -74,11 +95,12 @@ def monthly_rebalance(
         price_ok = close.loc[d].between(min_price, max_price)
         eligible &= price_ok
         prev_close = close.shift(1).loc[entry_date]
+        prev_close_daily = close.shift(1)
         ups = pd.Series(False, index=close.columns)
         downs = pd.Series(False, index=close.columns)
         for c in close.columns[eligible]:
-            if prev_close.get(c) and close.loc[entry_date].get(c):
-                u, dn = _limit_up_down(c, prev_close[c], close.loc[entry_date][c])
+            if prev_close.get(c) and open_.loc[entry_date].get(c):
+                u, dn = _limit_up_down(c, prev_close[c], open_.loc[entry_date][c])
                 ups[c], downs[c] = u, dn
         eligible &= ~ups
 
@@ -94,20 +116,29 @@ def monthly_rebalance(
         end = rebalance_dates[i + 1]
         end_date = cal[cal > end]
         exit_date = end_date[0] if len(end_date) else cal[-1]
+        exit_idx = cal.get_loc(exit_date) if exit_date in cal else None
         period_ret = 0.0
         realized = 0.0
         for c in selected:
             p0 = open_.loc[entry_date, c]
-            p1 = open_.loc[exit_date, c] if exit_date in open_.index else close.loc[cal[cal <= end][-1], c]
+            p1 = _next_sellable_open(open_, prev_close_daily, cal, c, exit_idx) \
+                if exit_idx is not None else np.nan
             if pd.notna(p0) and pd.notna(p1) and p0 > 0 and p1 > 0:
-                period_ret += w * (p1 / p0 - 1)
+                notional = initial_capital * w
+                buy_fee = max(notional * costs["commission"],
+                              costs.get("min_commission", 0.0))
+                sell_fee = max(notional * costs["commission"],
+                               costs.get("min_commission", 0.0))
+                fees = (buy_fee + sell_fee
+                        + notional * (costs["stamp_duty"]
+                                      + costs["slippage"] * 2
+                                      + costs["transfer_fee"] * 2))
+                period_ret += w * (p1 / p0 - 1) - fees / initial_capital
                 realized += 1
         tradable = realized / len(selected) if len(selected) else 0.0
-        # 成本只对实际成交仓位收取（双边佣金 + 卖出印花税 + 滑点）
-        cost = costs["commission"] * 2 + costs["stamp_duty"] + costs["slippage"] * 2 + costs["transfer_fee"] * 2
-        period_ret -= cost * tradable
         nav_dates.append(exit_date)
-        nav.append(1.0 if not nav else nav[-1] * (1 + period_ret))
+        prev_nav = 1.0 if not nav else nav[-1]
+        nav.append(prev_nav * (1 + period_ret))
         holdings_log.append({"date": str(entry_date.date()), "holdings": [str(c) for c in selected], "period_ret": period_ret})
         cash_ratio_log.append(tradable)
 
