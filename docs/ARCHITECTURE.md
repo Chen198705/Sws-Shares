@@ -124,10 +124,10 @@
 | G2 样本外 | 一次性测试集 + 子周期稳健 + 参数敏感性 | BACKTEST.md |
 | G3 实盘门 | L2/L3 + 仓位上限 + 压力测试 | RISK.md |
 
-**现状**：信号层已越过 G3 运行（模拟盘）；研究层已完成 P0 管线验证
-（EXP-20260815-001），首次 `mom_6_1` 样本外结论为不通过，已诚实登记到
-`research/experiments/EXPERIMENTS.md`、`KNOWLEDGE_BASE.md`、`FAILURES.md`。
-任何"新结论"仍必须从 G0 重新走。
+**现状**：信号层已越过 G3 运行（模拟盘）；研究层已完成 P0 管线验证与
+全市场 L1 复验（EXP-001~003），模型库加入 GARCH（EXP-004，不采用）与
+截面 OLS 审计（EXP-005，与 rank IC 交叉一致），压力测试纳入月度门禁。
+所有结论都诚实登记到 `research/experiments/` 三件套。任何"新结论"仍必须从 G0 重新走。
 
 ## 6. 当前差距与实施路线
 
@@ -138,9 +138,11 @@
 - ⏳ 全市场 + 前复权重跑（EXP-20260815-002）
 
 ### P1（研究层→信号层注入）
-- 因子库 5+ 个（动量/低波动/质量/北向/换手）
-- Regime 规则法 + HMM 标记 2014-2024
-- 生成 `strategy_params` 注入 trading_bot（保持参数可回滚）
+- ✅ 因子库 10 个（动量/低波动/流动性/涨停计数/60d 回撤）
+- ✅ Regime 规则法 + HMM 标记 2014-2024
+- ✅ 生成 `strategy_params` 注入 trading_bot（保持参数可回滚）
+- ✅ 执行层风控：单票 ≤5%、账户回撤熔断（-20% 暂停 30 天 / -30% 暂停 90 天）、研究层因子约束
+- ⏳ 平仓归因聚合：因子贡献 vs LLM 贡献
 
 ### P2（归因闭环）
 - 平仓归因聚合：因子贡献 vs LLM 贡献
@@ -179,6 +181,18 @@ research/
 - 数据缓存：`research/data/cache/`（已同步到 Studio，git 忽略）
 - 首次正式实验：`EXP-20260815-001`，结果存于
   `research/experiments/EXP-20260815-001/results/`
+
+## 8.2 落地状态（2026-08-16）
+
+- 模型库：`research/models/garch.py`（GARCH/GJR，H6 不采用）、
+  `research/models/ols_factor.py`（逐月截面 OLS + Newey-West t）
+- 稳健性：`research/robustness/stress_test.py` 已支持自动读取模拟账户，
+  真实持仓 68.1% 敞口下四类压力测试最大回撤 -20.0%（2015 股灾口径），
+  未触发 40% 强制降仓，输出 `robustness/scenarios/latest_stress_test.json`
+- 实验：EXP-20260815-004（GARCH，不通过）、EXP-20260815-005（OLS，交叉验证通过）
+- 执行层：`strategy_store.py` 账户峰值/熔断，`trading_bot.py` 单票 5% 上限与
+  回撤熔断，`market_scanner.py` 消费研究层因子约束
+- 运行环境：Studio venv 已补 `arch`、`statsmodels`；API/trading_bot 已重启生效
 
 ## 9. 演进原则
 

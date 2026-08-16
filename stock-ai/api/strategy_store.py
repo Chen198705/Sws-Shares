@@ -1,6 +1,6 @@
 """策略参数持久化 - 按 strategy_type 分离止损止盈参数"""
 import os, sqlite3, json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from dataclasses import dataclass, asdict, field
 from typing import Optional
@@ -239,6 +239,51 @@ def get_stop_take(strategy_type: str, params: StrategyParams) -> tuple[float, fl
         "长线": (params.long_stop_loss,  params.long_take_profit),
     }
     return mapping.get(label, (params.stop_loss_pct, params.take_profit_pct))
+
+
+def get_account_peak() -> float:
+    """读取已记录账户总资产峰值；无记录返回 0（由调用方初始化）。"""
+    c = _conn()
+    row = c.execute("SELECT value FROM strategy_params WHERE key='account_peak'").fetchone()
+    c.close()
+    try:
+        return float(row[0]) if row else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def update_account_peak(total_assets: float) -> dict:
+    """更新峰值并返回当前峰值与回撤；首见时以当前资产为峰值。"""
+    peak = get_account_peak()
+    if peak <= 0:
+        peak = total_assets
+    peak = max(peak, total_assets)
+    c = _conn()
+    c.execute(
+        "INSERT OR REPLACE INTO strategy_params (key,value,updated_at) VALUES ('account_peak',?,?)",
+        (str(peak), datetime.now().isoformat()))
+    c.commit()
+    c.close()
+    dd = total_assets / peak - 1 if peak > 0 else 0.0
+    return {"peak": peak, "total_assets": total_assets, "drawdown": float(dd)}
+
+
+def get_circuit_break_until() -> str:
+    c = _conn()
+    row = c.execute("SELECT value FROM strategy_params WHERE key='circuit_break_until'").fetchone()
+    c.close()
+    return row[0] if row and row[0] else ""
+
+
+def set_circuit_break(days: int) -> str:
+    until = (datetime.now() + timedelta(days=days)).isoformat()
+    c = _conn()
+    c.execute(
+        "INSERT OR REPLACE INTO strategy_params (key,value,updated_at) VALUES ('circuit_break_until',?,?)",
+        (until, datetime.now().isoformat()))
+    c.commit()
+    c.close()
+    return until
 
 
 if __name__ == "__main__":

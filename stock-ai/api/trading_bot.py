@@ -32,6 +32,7 @@ from strategy_store import (
     init_schema as init_strategy_schema, load_params,
     log_attribution, close_attribution, should_iterate, get_stop_take,
     get_effective_params, get_research_overlay,
+    get_account_peak, update_account_peak, get_circuit_break_until, set_circuit_break,
 )
 from iteration_engine import run_iteration
 from market_scanner import scan_market, log_scan_result
@@ -430,10 +431,15 @@ def execute_decision(decision, broker):
         if max_new <= 0:
             print(f"  [{code}] 总仓位已达上限")
             return
-        vol = int(min(total * decision["position_ratio"], max_new) / price / 100) * 100
+        # RISK.md 单票上限：任何单只股票不超过总资产 max_position_size
+        single_cap = total * params.max_position_size
+        desired = min(total * decision["position_ratio"], max_new, single_cap)
+        vol = int(desired / price / 100) * 100
         if vol < 100:
             print(f"  [{code}] 买入金额过小")
             return
+        if desired >= single_cap - 1:
+            print(f"  [{code}] 触达单票上限 {params.max_position_size:.0%}")
         try:
             order = broker.buy(code, vol, price, horizon=horizon)
             if order.status == "filled":
@@ -474,6 +480,50 @@ def run_scan(client, broker, code):
         d["code"] = code
         act = d["action"] if d else "N/A"; print("  [", code, "] AI判断:", act)
         execute_decision(d, broker)
+
+
+def enforce_account_circuit_breaker(broker):
+    """RISK.md 账户级熔断：回撤>20% 清仓暂停 1 个月；>30% 暂停 3 个月。"""
+    try:
+        bal = broker.get_balance()
+        total = bal.get("total_assets", 0)
+        if total <= 0:
+            return False
+        peak_state = update_account_peak(total)
+        dd = peak_state["drawdown"]
+        until = get_circuit_break_until()
+        if until:
+            try:
+                if datetime.fromisoformat(until) > datetime.now():
+                    return True
+            except ValueError:
+                pass
+        if dd <= -0.30:
+            days = 90
+        elif dd <= -0.20:
+            days = 30
+        else:
+            return False
+        status = get_trading_status()
+        closed = 0
+        for pos in status.get("positions", []):
+            try:
+                order = broker.sell(pos.stock_code, pos.volume, pos.current_price)
+                if order.status == "filled":
+                    pnl = (order.filled_price - pos.avg_cost) * pos.volume
+                    st = _horizon_label(getattr(pos, "horizon", "中线"))
+                    tid = log_trade(pos.stock_code, "sell", order.filled_price,
+                                    pos.volume, pnl, f"账户熔断({dd:.1%})", st)
+                    close_attribution(tid, pnl, f"账户熔断({dd:.1%})")
+                    closed += 1
+            except Exception as e:
+                print(f"  [{pos.stock_code}] 熔断清仓失败: {e}")
+        until = set_circuit_break(days)
+        print(f"[风控] 账户回撤 {dd:.1%}，触发熔断，清仓 {closed} 只，暂停 {days} 天至 {until}")
+        return True
+    except Exception as e:
+        print(f"[风控] 熔断检查失败: {e}")
+        return False
 
 
 
@@ -575,6 +625,13 @@ def main_loop(stop_event):
         params = load_params()
         print("检查持仓...")
         check_positions(client, broker)
+        if enforce_account_circuit_breaker(broker):
+            print(f"[{ts}] 账户熔断暂停期，跳过扫描与买入")
+            for _ in range(POSITION_CHECK_INTERVAL):
+                if stop_event.is_set():
+                    break
+                time.sleep(1)
+            continue
         if scan_round % scan_rounds == 0:
             print("全市场扫描选股...")
             candidates = scan_market()

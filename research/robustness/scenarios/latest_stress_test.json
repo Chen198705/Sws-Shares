@@ -1,0 +1,34 @@
+{
+  "generated_at": "2026-08-16T08:04:05",
+  "holdings_value": 681273.2,
+  "cash": 294001.79,
+  "total_assets": 975274.99,
+  "exposure_pct": 0.6985447253189585,
+  "scenarios": {
+    "2015_股灾": {
+      "max_drawdown": -0.20015381941511168,
+      "final_nav": 770893.0299999994,
+      "initial_nav": 975274.99,
+      "trigger_40pct_reduce": false
+    },
+    "2018_慢熊": {
+      "max_drawdown": -0.17397784123952686,
+      "final_nav": 804956.6899999953,
+      "initial_nav": 975274.99,
+      "trigger_40pct_reduce": false
+    },
+    "2020_疫情冲击": {
+      "max_drawdown": -0.094585912647428,
+      "final_nav": 873084.01,
+      "initial_nav": 975274.99,
+      "trigger_40pct_reduce": false
+    },
+    "流动性枯竭": {
+      "max_drawdown": -0.0994847612359645,
+      "final_nav": 873084.0099999997,
+      "initial_nav": 975274.99,
+      "trigger_40pct_reduce": false
+    }
+  },
+  "action": "维持现仓"
+}

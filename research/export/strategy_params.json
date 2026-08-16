@@ -1,10 +1,10 @@
 {
-  "version": "2026-08-15.1",
-  "generated_at": "2026-08-15T21:14:04",
-  "confidence": "L0",
+  "version": "2026-08-16.1",
+  "generated_at": "2026-08-16T06:21:48",
+  "confidence": "L1",
   "regime": {
     "state": "🌊 震荡市",
-    "date": "2026-08-15",
+    "date": "2026-08-16",
     "metrics": {
       "close": 3927.176,
       "ma20": 3870.3955499999997,
@@ -70,70 +70,70 @@
       "status": "❌ 初步失效",
       "weight": 0.0,
       "last_verified": "2026-08-15",
-      "note": "EXP-20260815-002 样本外 -13.6%，跑输等权"
+      "note": "EXP-20260815-003 全市场qfq 样本外 -33.7%，动量不成立"
     },
     {
       "id": "mom_12_1",
       "status": "❌ 初步失效",
       "weight": 0.0,
       "last_verified": "2026-08-15",
-      "note": "EXP-20260815-002 样本外 -19.6%，跑输等权"
+      "note": "EXP-20260815-003 全市场qfq 样本外 -28.0%，跑输等权"
     },
     {
       "id": "mom_1",
-      "status": "🆕 未验证",
+      "status": "❌ 初步失效",
       "weight": 0.0,
-      "last_verified": null,
-      "note": ""
+      "last_verified": "2026-08-15",
+      "note": "EXP-20260815-003 全市场qfq 样本外 -63.2%"
     },
     {
       "id": "vol_60d_realized",
       "status": "⚠️ 初步正信号",
       "weight": 0.1,
       "last_verified": "2026-08-15",
-      "note": "EXP-20260815-002 低波动组合样本外 +5.4%"
+      "note": "EXP-20260815-003 低波动组合样本外 +18.4%，夏普 0.75"
     },
     {
       "id": "vol_20d_atr",
       "status": "⚠️ 初步正信号",
       "weight": 0.15,
       "last_verified": "2026-08-15",
-      "note": "EXP-20260815-002 低ATR组合样本外 +6.2%，当前最优"
+      "note": "EXP-20260815-003 低ATR样本外 +15.5%，敏感性稳健，当前最优"
     },
     {
       "id": "liq_20d_turnover",
       "status": "⚠️ 初步正信号",
       "weight": 0.1,
       "last_verified": "2026-08-15",
-      "note": "EXP-20260815-002 低换手组合样本外 +4.9%"
+      "note": "EXP-20260815-003 低换手样本外 +19.2%，夏普 0.93"
     },
     {
       "id": "liq_20d_amt",
       "status": "❌ 初步失效",
       "weight": 0.0,
       "last_verified": "2026-08-15",
-      "note": "EXP-20260815-002 高成交额组合样本外 -22.8%"
+      "note": "EXP-20260815-003 高成交额组合样本外 -12.8%"
     },
     {
       "id": "liq_amihud_20d",
-      "status": "🆕 未验证",
+      "status": "⚠️ 初步弱信号",
       "weight": 0.0,
-      "last_verified": null,
-      "note": "EXP-20260815-003 全市场前复权复验"
+      "last_verified": "2026-08-15",
+      "note": "EXP-20260815-003 样本外 +2.7%，IC 0.066 方向待 L2 确认"
     },
     {
       "id": "astock_limit_up_5d",
-      "status": "🆕 未验证",
+      "status": "❌ 初步失效",
       "weight": 0.0,
-      "last_verified": null,
-      "note": "EXP-20260815-003 全市场前复权复验"
+      "last_verified": "2026-08-15",
+      "note": "EXP-20260815-003 近5日涨停计数样本外 -64.9%"
     },
     {
       "id": "astock_maxdd_60d",
-      "status": "🆕 未验证",
-      "weight": 0.0,
-      "last_verified": null,
-      "note": "EXP-20260815-003 全市场前复权复验"
+      "status": "⚠️ 初步正信号",
+      "weight": 0.1,
+      "last_verified": "2026-08-15",
+      "note": "EXP-20260815-003 60d低回撤样本外 +14.7%，夏普 0.70"
     }
   ],
   "crowding": {
@@ -250,7 +250,7 @@
   },
   "risk_limits": {
     "max_position_pct": 0.7,
-    "single_stock_pct": 0.25,
+    "single_stock_pct": 0.05,
     "min_cash_pct": 0.3
   },
   "horizon_weights": {

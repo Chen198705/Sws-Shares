@@ -1,6 +1,6 @@
 {
   "updated_at": "2026-08-15",
-  "confidence": "L0",
+  "confidence": "L1",
   "factors": [
     {"id": "mom_6_1", "status": "❌ 初步失效", "weight": 0.0, "last_verified": "2026-08-15", "note": "EXP-20260815-003 全市场qfq 样本外 -33.7%，动量不成立"},
     {"id": "mom_12_1", "status": "❌ 初步失效", "weight": 0.0, "last_verified": "2026-08-15", "note": "EXP-20260815-003 全市场qfq 样本外 -28.0%，跑输等权"},

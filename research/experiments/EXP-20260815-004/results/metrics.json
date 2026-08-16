@@ -1,0 +1,66 @@
+{
+  "experiment": "EXP-20260815-004",
+  "hypothesis": "H6: GARCH(1,1) 在 A 股波动率预测上优于历史波动率",
+  "generated_at": "2026-08-16T08:22:51",
+  "index": "sh000001",
+  "window": "2014-01-01 ~ 2024-12-31",
+  "rolling_window_days": 500,
+  "garch_fit": {
+    "ok": true,
+    "model": "GARCH",
+    "params": {
+      "omega": 0.01915324987714316,
+      "alpha": 0.09281336007520459,
+      "beta": 0.8984571270369078,
+      "gamma": null,
+      "persistence": 0.9912704871121124
+    },
+    "loglik": -3971.1577030287085,
+    "nobs": 2675,
+    "last_cond_vol": 0.14471391851788434,
+    "next_vol_forecast": 0.1499783234448634
+  },
+  "gjr_garch_fit": {
+    "ok": true,
+    "model": "GARCH",
+    "params": {
+      "omega": 0.019343826132991217,
+      "alpha": 0.08950948243395494,
+      "beta": 0.8974263249569127,
+      "gamma": 0.008524605003919144,
+      "persistence": 0.9911981098928272
+    },
+    "loglik": -3970.952957729163,
+    "nobs": 2675,
+    "last_cond_vol": 0.14448224396378737,
+    "next_vol_forecast": 0.1507340036980759
+  },
+  "compare_garch": {
+    "ok": true,
+    "model": "GARCH",
+    "periods": 109,
+    "mse_garch": 0.0011421935462689347,
+    "mse_hist": 5.428911593107628e-05,
+    "mse_ratio": 21.039089082220958,
+    "qlike_garch": 0.017160119654507405,
+    "qlike_hist": 0.0017849506819058642,
+    "direction_acc_garch": 0.7798165137614679,
+    "direction_acc_hist": 0.8990825688073395,
+    "better_by_mse": false,
+    "better_by_qlike": false
+  },
+  "compare_gjr": {
+    "ok": true,
+    "model": "GARCH",
+    "periods": 109,
+    "mse_garch": 0.0017755876962736407,
+    "mse_hist": 5.428911593107628e-05,
+    "mse_ratio": 32.70614497623925,
+    "qlike_garch": 0.02005457304218684,
+    "qlike_hist": 0.0017849506819058642,
+    "direction_acc_garch": 0.7339449541284404,
+    "direction_acc_hist": 0.8990825688073395,
+    "better_by_mse": false,
+    "better_by_qlike": false
+  }
+}

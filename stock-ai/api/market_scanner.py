@@ -13,6 +13,7 @@ print = functools.partial(print, flush=True)
 from jqdatasdk import auth, get_all_securities, get_price, get_money_flow_pro
 auth(os.getenv("JQ_USERNAME", ""), os.getenv("JQ_PASSWORD", ""))
 from market_data import get_stock_realtime, get_stock_history, calc_indicators, get_turnover_rate
+from strategy_store import get_research_overlay
 
 DB_PATH = Path(__file__).parent / "logs" / "trading_log.db"
 SCAN_LIMIT = 200
@@ -23,12 +24,23 @@ MIN_VOL_RATIO = 1.5
 MIN_TURNOVER = 0.5
 TOP_N = 10
 
+# 研究层契约 60 秒缓存，避免每次打分重复读盘
+_overlay_cache = {"ts": 0.0, "data": {}}
+
+
+def _research_overlay():
+    now = time.time()
+    if now - _overlay_cache["ts"] > 60 or not _overlay_cache["data"]:
+        _overlay_cache["data"] = get_research_overlay()
+        _overlay_cache["ts"] = now
+    return _overlay_cache["data"]
+
 
 def jq_to_simple(code):
     return code.split(".")[0]
 
 
-def score_stock(code, ind, turnover, stock):
+def score_stock(code, ind, turnover, stock, hist=None):
     score = 0
     reasons = []
     price = stock.get("最新价", 0)
@@ -83,6 +95,26 @@ def score_stock(code, ind, turnover, stock):
     if 5 <= price <= 200:
         score += 5; reasons.append(f"股价¥{price:.0f}")
 
+    # 研究层因子约束（EXP-20260815-003 L1）：低换手有效、涨停追涨失效、低回撤有效
+    fc = {f.get("id"): f for f in _research_overlay().get("factor_constraints") or []}
+    t_st = (fc.get("liq_20d_turnover") or {}).get("status", "")
+    if "有效" in t_st or "正信号" in t_st:
+        if turnover < 1.5:
+            score += 10; reasons.append("研究层低换手")
+        elif turnover >= 8:
+            score -= 15; reasons.append(f"研究层高换手{turnover:.0f}%反向")
+    l_st = (fc.get("astock_limit_up_5d") or {}).get("status", "")
+    if "失效" in l_st and chg_pct > 7:
+        score -= 10; reasons.append("研究层涨停追涨失效")
+    m_st = (fc.get("astock_maxdd_60d") or {}).get("status", "")
+    if ("有效" in m_st or "正信号" in m_st) and hist is not None and len(hist) >= 20:
+        close_series = hist["close"].tail(20)
+        maxdd20 = float((close_series / close_series.cummax() - 1).min())
+        if maxdd20 > -0.08:
+            score += 8; reasons.append(f"研究层低回撤({maxdd20:.1%})")
+        elif maxdd20 < -0.20:
+            score -= 8; reasons.append(f"研究层回撤过大({maxdd20:.1%})")
+
     return {
         "code": code, "name": stock.get("股票名", code), "score": score,
         "price": price, "chg_pct": chg_pct, "vol_ratio": vol_ratio,
@@ -125,7 +157,7 @@ def analyze_single(jq_code):
         if turnover < MIN_TURNOVER:
             return None
 
-        result = score_stock(simple, ind, turnover, stock)
+        result = score_stock(simple, ind, turnover, stock, hist)
 # 主力资金已从腾讯实时行情获取
         return result
     except:

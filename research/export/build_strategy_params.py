@@ -47,7 +47,7 @@ def build() -> dict:
     regime_label = metrics.get("state", "❓ 转换期")
 
     contract = {
-        "version": "2026-08-15.1",
+        "version": datetime.now().strftime("%Y-%m-%d") + ".1",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "confidence": factor_state.get("confidence", "L0"),
         "regime": {
@@ -63,7 +63,7 @@ def build() -> dict:
         "crowding": crowding.get("factors", {}),
         "risk_limits": {
             "max_position_pct": 0.70,
-            "single_stock_pct": 0.25,
+            "single_stock_pct": 0.05,
             "min_cash_pct": 0.30,
         },
         "horizon_weights": _horizon_weights(regime_label),
