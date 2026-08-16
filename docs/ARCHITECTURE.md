@@ -211,6 +211,11 @@ research/
   （`max_total_position` 按 regime 自适应：牛 100% / 震荡 70% / 熊 50% / 不明 40%），
   `trading_bot.py` 单票 5% 上限、回撤熔断、行业集中度 ≤30% 买入拦截，
   `market_scanner.py` 消费研究层因子约束
+- 信号层接入：EXP-009 L1 通过后 `value_bp` 权重 0.10 注入 `factor_state/strategy_params`；
+  `market_scanner.py` 按 PB 低估值加分/高估值减分，`analyzer.py` 提示词注入 PB 估值倾斜
+- 实验：EXP-20260816-010（L2 分层复验，全市场 4871：`value_bp` 行业内 IC t=5.09、
+  三档市值全显著；低波动/低换手牛市与震荡市显著；1→3 个月 IC 无衰减；
+  1 亿资金容量测试无性能损耗），`research/experiments/run_l2_audit.py` 可复现
 - 运行环境：Studio venv 已补 `arch`、`statsmodels`；API/trading_bot 已重启生效
 
 ## 9. 演进原则

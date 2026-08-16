@@ -19,7 +19,8 @@ sys.path.insert(0, str(ROOT))
 
 from research.data.loader import load_panel
 from research.data.fundamental_history import (
-    FIN_SUFFIX, VALUATION_SUFFIX, availability_date, load_cached,
+    FIN_SUFFIX, VALUATION_SUFFIX,
+    valuation_factor_panel, quality_factor_panel,
 )
 from research.models.ols_factor import run_ols_audit, monthly_fwd_returns
 from research.models.regularized import run_regularized_audit
@@ -30,51 +31,6 @@ FACTORS = ["value_ep", "value_bp", "size_logcap", "quality_roe",
            "quality_gross_margin"]
 SPLIT = "2023-01-01"
 REPORT_DIR = ROOT / "research" / "experiments" / "EXP-20260816-009" / "results"
-
-
-def _valuation_factor(panel: dict, cache: Path, factor: str) -> pd.DataFrame:
-    """从估值历史构建日频因子宽表（value_ep / value_bp / size_logcap）。"""
-    series = {}
-    for code, pdf in panel.items():
-        val = load_cached(cache, VALUATION_SUFFIX, code)
-        if val.empty:
-            continue
-        cal = pd.DatetimeIndex(sorted(pdf["date"].astype("datetime64[ns]")))
-        val = val.set_index("date").reindex(cal).ffill(limit=5)
-        if factor == "value_ep":
-            pe = pd.to_numeric(val["pe_ttm"], errors="coerce")
-            s = (1.0 / pe.replace(0, np.nan)).where(pe > 0)
-        elif factor == "value_bp":
-            pb = pd.to_numeric(val["pb"], errors="coerce")
-            s = (1.0 / pb.replace(0, np.nan)).where(pb > 0)
-        else:
-            mv = pd.to_numeric(val["total_mv"], errors="coerce")
-            s = np.log(mv.replace(0, np.nan))
-        series[code] = s.rename(code)
-    return pd.DataFrame(series)
-
-
-def _quality_factor(panel: dict, cache: Path, field: str) -> pd.DataFrame:
-    """从财务指标历史构建日频因子宽表（报告披露后可用）。"""
-    series = {}
-    for code, pdf in panel.items():
-        fin = load_cached(cache, FIN_SUFFIX, code)
-        if fin.empty:
-            continue
-        cal = pd.DatetimeIndex(sorted(pdf["date"].astype("datetime64[ns]")))
-        events = fin.set_index("date")
-        avail = pd.Series(
-            [availability_date(d) for d in events.index], index=events.index
-        )
-        values = pd.Series(
-            pd.to_numeric(events[field], errors="coerce").to_numpy(),
-            index=pd.DatetimeIndex(avail.to_numpy()),
-        )
-        values = values[~values.index.duplicated(keep="last")]
-        s = values.reindex(cal, method="ffill")
-        series[code] = s.rename(code)
-    return pd.DataFrame(series)
-
 
 def _rank_ic_stats(factor_mat: pd.DataFrame, fwd: pd.DataFrame,
                    dates, split: str) -> dict:
@@ -108,10 +64,10 @@ def main(sample: int = 0):
     factor_mats = {}
     for f in FACTORS:
         if f in ("quality_roe", "quality_gross_margin"):
-            mat = _quality_factor(panel, cache, "roe" if f == "quality_roe"
-                                  else "gross_margin")
+            mat = quality_factor_panel(
+                panel, cache, "roe" if f == "quality_roe" else "gross_margin")
         else:
-            mat = _valuation_factor(panel, cache, f)
+            mat = valuation_factor_panel(panel, cache, f)
         mat = mat.loc[:, mat.notna().any()]
         factor_mats[f] = mat
         print(f"[EXP-009] {f}: {mat.shape[0]} dates x {mat.shape[1]} stocks")

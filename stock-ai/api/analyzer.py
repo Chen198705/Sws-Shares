@@ -7,10 +7,14 @@ from market_data import (
     get_all_indices,
     get_stock_realtime,
     get_stock_history,
-    get_index_history,
-    get_hot_concepts,
     calc_indicators,
 )
+try:
+    from market_data import get_hot_concepts
+except ImportError:
+    get_hot_concepts = lambda: []
+from research_snapshot import value_bp_metric
+from strategy_store import get_research_overlay
 
 
 SYSTEM_PROMPT = """你是一位专业A股投资顾问，有10年以上量化交易经验。
@@ -59,6 +63,22 @@ def _format_stock(code: str, stock: dict, indicators: dict) -> str:
         lines.append(f"- MACD={indicators['MACD']:.4f}  MACD信号线={indicators['MACD_Signal']:.4f}\n")
         lines.append(f"- 均线多头排列：{indicators['均线多头']}  MACD金叉：{indicators['MACD金叉']}\n")
     return "".join(lines)
+
+
+def _value_factor_line(code: str) -> str:
+    """研究层 value_bp 约束注入：L1 通过时给出 PB 估值倾斜。"""
+    try:
+        fc = {f.get("id"): f for f in get_research_overlay().get("factor_constraints") or []}
+        status = (fc.get("value_bp") or {}).get("status", "")
+        if "通过" not in status and "有效" not in status:
+            return ""
+        pb, bp = value_bp_metric(code)
+        if not pb or not bp:
+            return ""
+        tilt = "低估值偏好" if bp >= 0.75 else "高估值警惕" if bp < 0.25 else "估值中性"
+        return f"- 研究层价值因子：PB={pb:.2f}（账面市值比 {bp:.2f}，{tilt}）\n"
+    except Exception:
+        return ""
 
 
 def analyze_market() -> dict:
@@ -120,6 +140,9 @@ def analyze_stock(stock_code: str) -> dict:
 ## 待分析个股
 
 {stock_str}
+
+## 研究层因子
+{_value_factor_line(stock_code)}
 
 请分析这只股票，给出：
 1. 技术面分析（均线、MACD、RSI解读）

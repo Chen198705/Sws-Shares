@@ -11,6 +11,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[2]
 CACHE = ROOT / "research" / "data" / "cache"
 API_INDUSTRY = ROOT / "stock-ai" / "api" / "data" / "industry_map.json"
+VALUATION_SUFFIX = "_valuation_em.csv"
 
 
 def fetch_spot_snapshot() -> pd.DataFrame:
@@ -51,6 +52,24 @@ def fetch_yjbb(period: str = "20260331") -> pd.DataFrame:
     return df
 
 
+def _backfill_pb_from_cache(snap: pd.DataFrame) -> pd.DataFrame:
+    """用研究层历史估值缓存回填市净率（东财源不可达时的离线兜底）。"""
+    pb = {}
+    for f in CACHE.glob(f"*{VALUATION_SUFFIX}"):
+        try:
+            df = pd.read_csv(f, usecols=["pb"], dtype=float)
+            val = df["pb"].dropna().iloc[-1]
+            pb[f.name[:6]] = float(val)
+        except Exception:
+            continue
+    if not pb:
+        return snap
+    pb_df = pd.DataFrame({"code": list(pb), "pb_cache": list(pb.values())})
+    snap = snap.merge(pb_df, on="code", how="left")
+    snap["pb"] = snap["pb"].fillna(snap["pb_cache"])
+    return snap.drop(columns=["pb_cache"])
+
+
 def build_fundamental_snapshot(period: str = "20260331",
                                out: Path = None) -> dict:
     """合并估值快照与业绩报表，落盘 CSV，并生成行业映射 JSON。"""
@@ -59,6 +78,7 @@ def build_fundamental_snapshot(period: str = "20260331",
     snap = spot.merge(
         yjbb[["code", "roe", "gross_margin", "industry"]], on="code", how="left"
     )
+    snap = _backfill_pb_from_cache(snap)
     out = Path(out) if out else CACHE / "fundamental_snapshot.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     snap.to_csv(out, index=False, encoding="utf-8")

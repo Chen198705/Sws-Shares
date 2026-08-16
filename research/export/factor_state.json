@@ -82,9 +82,9 @@
     {
       "id": "value_bp",
       "status": "✅ L1 通过",
-      "weight": 0.0,
+      "weight": 0.1,
       "last_verified": "2026-08-16",
-      "note": "EXP-009 全市场 4871：OOS IC t=2.85、t(NW)=2.04，待 T-W4 纳入信号层"
+      "note": "EXP-009 全市场 4871：OOS IC t=2.85、t(NW)=2.04；EXP-010 L2 复验后纳入信号层（低估值加分）"
     },
     {
       "id": "value_dp",

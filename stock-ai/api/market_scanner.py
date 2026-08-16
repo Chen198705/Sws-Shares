@@ -14,6 +14,7 @@ from jqdatasdk import auth, get_all_securities, get_price, get_money_flow_pro
 auth(os.getenv("JQ_USERNAME", ""), os.getenv("JQ_PASSWORD", ""))
 from market_data import get_stock_realtime, get_stock_history, calc_indicators, get_turnover_rate
 from strategy_store import get_research_overlay
+from research_snapshot import value_bp_metric
 
 DB_PATH = Path(__file__).parent / "logs" / "trading_log.db"
 SCAN_LIMIT = 200
@@ -114,6 +115,17 @@ def score_stock(code, ind, turnover, stock, hist=None):
             score += 8; reasons.append(f"研究层低回撤({maxdd20:.1%})")
         elif maxdd20 < -0.20:
             score -= 8; reasons.append(f"研究层回撤过大({maxdd20:.1%})")
+    # 研究层 value_bp（EXP-009 L1）：账面市值比越高越便宜，纳入信号层倾斜
+    v_st = (fc.get("value_bp") or {}).get("status", "")
+    if "通过" in v_st or "有效" in v_st:
+        pb, bp = value_bp_metric(code)
+        if pb and bp:
+            if bp >= 0.75:
+                score += 8; reasons.append(f"研究层低估值PB={pb:.2f}")
+            elif bp >= 0.40:
+                score += 3
+            elif bp < 0.25:
+                score -= 5; reasons.append(f"研究层高估值PB={pb:.2f}")
 
     return {
         "code": code, "name": stock.get("股票名", code), "score": score,

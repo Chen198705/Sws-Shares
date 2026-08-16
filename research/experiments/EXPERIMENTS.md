@@ -15,6 +15,7 @@
 | EXP-20260816-007 | M2: Ridge/LASSO 样本外交叉验证 | 🎯 完成（交叉验证） | 2026-08-16 |
 | EXP-20260816-008 | H4: 行业中性化后的因子比原始因子更稳健 | ❌ 不通过 | 2026-08-16 |
 | EXP-20260816-009 | H8: 历史估值/质量因子 L1 截面审计 | 🎯 完成（L1，全市场 4871） | 2026-08-16 |
+| EXP-20260816-010 | L2: 有效因子按 regime/行业/市值分层复验 + 换手衰减 + 容量 | 🎯 完成（L2，全市场 4871） | 2026-08-16 |
 
 ---
 
@@ -374,4 +375,48 @@ Ridge/LASSO 与 OLS 方向完全一致（见 report.md）。
 cd research
 PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 data/fundamental_history.py --workers 4
 PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 experiments/run_fundamental_history_audit.py
+```
+
+---
+
+### EXP-20260816-010: L2 分层复验 + 换手衰减 + 容量测试
+
+**日期**：2026-08-16
+**负责人**：辉老板
+**假设**：L2 — L1 有效因子（低波动 / 低换手 / 低回撤 / value_bp）在 regime / 行业 / 市值分层与容量约束下保持稳健
+**目标**：回答 T-W4 的 L2 验收项：分层重跑有效因子、换手率衰减、容量测试
+**前置实验**：EXP-20260815-003（L1）、EXP-20260816-009（value_bp L1）
+
+**数据**：全市场 4871 只 qfq，2014-2024；估值历史 2018-2024；样本外 2023-01-01 起，23 期
+**方法**：`research/experiments/run_l2_audit.py`：
+- 逐月 rank IC 按 regime（规则法牛/熊/震荡）、行业组内（>=20 只）、市值三分位分层
+- 换手衰减：1/2/3 个月（21/42/63 交易日）前向收益 IC
+- 容量：`monthly_rebalance` 月度 20 只，10 万 vs 1 亿初始资金，OOS 年化/夏普/回撤 + 最低佣金是否生效
+
+**结果（OOS rank IC）**：
+
+| 因子 | OOS mean_IC | IC t | 正命中率 |
+|---|---|---|---|
+| vol_60d_realized | -0.099 | -2.24 | 30% |
+| vol_20d_atr | -0.098 | -2.29 | 30% |
+| liq_20d_turnover | -0.070 | -1.78 | 30% |
+| astock_maxdd_60d | -0.054 | -1.58 | 39% |
+| value_bp | +0.096 | +2.85 | 78% |
+
+**分层要点**：
+- regime：低波动/低换手在牛市与震荡市显著，熊市不显著；`value_bp` 在牛市（t=4.21）与震荡市（t=2.97）显著，熊市不显著；低回撤在熊市显著（t=2.12）
+- 市值：`value_bp` 大/中/小市值全部显著（large t=2.78 / mid t=2.60 / small t=2.04）；低波动在大市值最强
+- 行业组内：五个因子全部通过行业内 IC（`value_bp` t=5.09 最强），说明不是行业 beta 驱动
+- 换手衰减：1m→3m 的 IC 绝对值均增强（`value_bp` 0.096→0.164），低波动/低换手持有 2-3 个月更好，无快速衰减
+- 容量：1 亿资金下 `liq_20d_turnover` OOS 年化 +19.0%（夏普 0.92）、`value_bp` +10.4%（夏普 0.30）；10 万资金受最低佣金拖累约 1.5-2pp，容量约束在当前规模内不构成瓶颈
+
+**结论（L2）**：L1 有效因子通过 L2 分层复验。`value_bp` 为最稳健的价值因子（全样本、行业内、三档市值均显著），已纳入信号层权重 0.10；低波动/低换手作为低值优选约束继续有效；`astock_maxdd_60d` OOS 边际（t=-1.58）但熊市显著，保留为风险辅助约束。
+
+**是否更新 KNOWLEDGE_BASE.md**：是
+**是否更新 FAILURES.md**：否
+
+**复现命令**：
+```bash
+cd research
+PYTHONPATH=/Users/chenjianhui/AI/Sws-Shares python3 experiments/run_l2_audit.py
 ```

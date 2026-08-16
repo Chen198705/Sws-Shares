@@ -5,6 +5,8 @@ import os
 import requests
 from config import OLLAMA_BASE_URL, OLLAMA_API_KEY, OLLAMA_MODEL
 from rule_engine import analyze as rule_analyze
+from research_snapshot import value_bp_metric
+from strategy_store import get_research_overlay
 
 
 class OllamaClient:
@@ -101,6 +103,22 @@ def _parse_action(text: str) -> str:
     return "hold"
 
 
+def _value_factor_line(code: str) -> str:
+    """研究层 value_bp 约束注入：L1 通过时给出 PB 估值倾斜。"""
+    try:
+        fc = {f.get("id"): f for f in get_research_overlay().get("factor_constraints") or []}
+        status = (fc.get("value_bp") or {}).get("status", "")
+        if "通过" not in status and "有效" not in status:
+            return ""
+        pb, bp = value_bp_metric(code)
+        if not pb or not bp:
+            return ""
+        tilt = "低估值偏好" if bp >= 0.75 else "高估值警惕" if bp < 0.25 else "估值中性"
+        return f"研究层价值因子：PB={pb:.2f}（账面市值比 {bp:.2f}，{tilt}）"
+    except Exception:
+        return ""
+
+
 def analyze_with_fallback(stock_data: dict, indicators: dict, index_pct: float = 0.0) -> tuple[str, str, bool, str]:
     """
     返回 (analysis_text, action, used_ai, horizon)
@@ -128,9 +146,10 @@ def analyze_with_fallback(stock_data: dict, indicators: dict, index_pct: float =
     if client.is_alive():
         try:
             horizon_hint = build_horizon_hint(indicators)
+            value_hint = _value_factor_line(str(stock_data.get("代码", "")))
             messages = [
                 {"role": "system", "content": "【沈万三】你是一个专业的A股量化交易分析师。请对给定的股票数据进行全面技术分析，并按以下格式输出：\n[信号] 买入/持有/卖出/观望（结合量价时空给出明确判断）\n[周期] short/medium/long（根据信号强度和股票特性判断）\n[分析]\n1. 趋势判断：当前价格与均线的位置关系，5/20日均线排列\n2. 动能分析：MACD金叉/死叉、RSI所处区间（超买超卖）\n3. 量价配合：成交量是否放大、量价背离情况\n4. 支撑压力：关键支撑位与压力位\n5. 风险提示：主要风险因素\n[操作建议] 具体入场价位、止损位、目标位（如有）"},
-                {"role": "user", "content": f"股票数据：{stock_data}\n技术指标：{indicators}\n大盘涨跌：{index_pct}%{horizon_hint}"}
+                {"role": "user", "content": f"股票数据：{stock_data}\n技术指标：{indicators}\n大盘涨跌：{index_pct}%{horizon_hint}\n{value_hint}"}
             ]
             text = client.chat(messages)
             action = _parse_action(text)

@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 import akshare as ak
+import numpy as np
 import pandas as pd
 
 
@@ -81,6 +82,52 @@ def load_cached(cache_dir: Path, suffix: str, code: str) -> pd.DataFrame:
         return df
     except Exception:
         return pd.DataFrame()
+
+
+def valuation_factor_panel(panel: dict, cache_dir: Path,
+                           factor: str) -> pd.DataFrame:
+    """从估值历史构建日频因子宽表（value_ep / value_bp / size_logcap）。"""
+    series = {}
+    for code, pdf in panel.items():
+        val = load_cached(cache_dir, VALUATION_SUFFIX, code)
+        if val.empty:
+            continue
+        cal = pd.DatetimeIndex(sorted(pdf["date"].astype("datetime64[ns]")))
+        val = val.set_index("date").reindex(cal).ffill(limit=5)
+        if factor == "value_ep":
+            pe = pd.to_numeric(val["pe_ttm"], errors="coerce")
+            s = (1.0 / pe.replace(0, np.nan)).where(pe > 0)
+        elif factor == "value_bp":
+            pb = pd.to_numeric(val["pb"], errors="coerce")
+            s = (1.0 / pb.replace(0, np.nan)).where(pb > 0)
+        else:
+            mv = pd.to_numeric(val["total_mv"], errors="coerce")
+            s = np.log(mv.replace(0, np.nan))
+        series[code] = s.rename(code)
+    return pd.DataFrame(series)
+
+
+def quality_factor_panel(panel: dict, cache_dir: Path,
+                         field: str) -> pd.DataFrame:
+    """从财务指标历史构建日频因子宽表（报告披露后可用）。"""
+    series = {}
+    for code, pdf in panel.items():
+        fin = load_cached(cache_dir, FIN_SUFFIX, code)
+        if fin.empty:
+            continue
+        cal = pd.DatetimeIndex(sorted(pdf["date"].astype("datetime64[ns]")))
+        events = fin.set_index("date")
+        avail = pd.Series(
+            [availability_date(d) for d in events.index], index=events.index
+        )
+        values = pd.Series(
+            pd.to_numeric(events[field], errors="coerce").to_numpy(),
+            index=pd.DatetimeIndex(avail.to_numpy()),
+        )
+        values = values[~values.index.duplicated(keep="last")]
+        s = values.reindex(cal, method="ffill")
+        series[code] = s.rename(code)
+    return pd.DataFrame(series)
 
 
 def fetch_one(code: str, with_fin: bool = True, cache_dir: Path = None) -> dict:
