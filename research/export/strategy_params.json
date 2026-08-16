@@ -1,6 +1,6 @@
 {
   "version": "2026-08-16.1",
-  "generated_at": "2026-08-16T11:23:28",
+  "generated_at": "2026-08-16T17:20:05",
   "confidence": "L1",
   "regime": {
     "state": "🌊 震荡市",
@@ -368,6 +368,30 @@
       "flags": [],
       "crowded": false,
       "periods": 60
+    },
+    "value_ep": {
+      "available": false,
+      "note": "样本不足 90 日"
+    },
+    "value_bp": {
+      "available": false,
+      "note": "样本不足 90 日"
+    },
+    "value_dp": {
+      "available": false,
+      "note": "样本不足 90 日"
+    },
+    "size_logcap": {
+      "available": false,
+      "note": "样本不足 90 日"
+    },
+    "quality_roe": {
+      "available": false,
+      "note": "样本不足 90 日"
+    },
+    "quality_gross_margin": {
+      "available": false,
+      "note": "样本不足 90 日"
     }
   },
   "risk_limits": {

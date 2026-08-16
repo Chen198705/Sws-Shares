@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.shenwansan.research</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/chenjianhui/AI/Sws-Shares/stock-ai/api/bin/shenwansan-research</string>
+        <string>/Users/chenjianhui/AI/Sws-Shares/research/daily_refresh.py</string>
+    </array>
+    <key>WorkingDirectory</key><string>/Users/chenjianhui/AI/Sws-Shares/research</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key><string>/Users/chenjianhui/AI/Sws-Shares/stock-ai/api/.venv/lib/python3.9/site-packages:/Users/chenjianhui/AI/Sws-Shares</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>35</integer></dict>
+        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>35</integer></dict>
+        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>35</integer></dict>
+        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>35</integer></dict>
+        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>35</integer></dict>
+    </array>
+    <key>StandardOutPath</key><string>/Users/chenjianhui/AI/Sws-Shares/research/logs/launchd_daily_refresh.log</string>
+    <key>StandardErrorPath</key><string>/Users/chenjianhui/AI/Sws-Shares/research/logs/launchd_daily_refresh.log</string>
+    <key>RunAtLoad</key><false/>
+    <key>KeepAlive</key><false/>
+</dict>
+</plist>

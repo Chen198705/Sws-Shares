@@ -135,7 +135,7 @@
 - ✅ 搭 `research/` 数据管线：AKShare 全 A 日线 + 质量校验
 - ✅ 跑 BL1-BL4（随机游走/历史均值/等权/简单动量）
 - ✅ 落地第一个因子 `mom_6_1` 的 EXP 实验记录（EXP-20260815-001）
-- ⏳ 全市场 + 前复权重跑（EXP-20260815-002）
+- ✅ 全市场 + 前复权重跑（EXP-20260815-002）
 
 ### P1（研究层→信号层注入）
 - ✅ 因子库 16 个（动量/低波动/流动性/价值/规模/质量/涨停计数/60d 回撤）
@@ -217,6 +217,21 @@ research/
   三档市值全显著；低波动/低换手牛市与震荡市显著；1→3 个月 IC 无衰减；
   1 亿资金容量测试无性能损耗），`research/experiments/run_l2_audit.py` 可复现
 - 运行环境：Studio venv 已补 `arch`、`statsmodels`；API/trading_bot 已重启生效
+
+## 8.3 落地状态（2026-08-16 收尾）
+
+- 政策事件研究：EXP-20260816-011 全市场 4871 只 CAR 检验完成，唯一 L1 候选
+  `policy_industry_plan_car5` 以权重 0 登记进 `strategy_params.json`（待决策启用）；
+  分析师预期数据源评估 EXP-20260816-012 完成并搁置 R6
+- 研究层自动化：`com.shenwansan.research` LaunchAgent（工作日 15:35）执行
+  `daily_refresh.py`：regime → 因子拥挤度（4871 只）→ 策略契约 → 平仓归因聚合，
+  手动触发验证 `launchctl kickstart -k gui/$(id -u)/com.shenwansan.research`
+- 三层落地校验：`research/verify_landing.py` 全部通过（契约版本、16 因子、
+  `value_bp` 权重 0.10、政策因子登记、PB 覆盖率 87.9%、短线 -3%/+8%、报告调度、飞书直连）
+- 部署资产：`docker/com.shenwansan.{api,trading,research}.plist` 三件套入仓库，
+  README 同步三层部署方式与数据持久化说明
+- 修复：非交易日 `seconds_to_open()` 字符串区间误判导致 `sleep(0)` 忙循环，
+  日志从 17GB 膨胀恢复为 KB 级；周末休眠直接跳到下一交易日 09:30 并封顶 30 分钟
 
 ## 9. 演进原则
 

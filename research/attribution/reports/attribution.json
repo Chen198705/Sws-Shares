@@ -1,10 +1,114 @@
 {
-  "generated_at": "2026-08-15T21:14:04",
+  "generated_at": "2026-08-16T17:20:05",
   "db": "/Users/chenjianhui/AI/Sws-Shares/stock-ai/api/logs/trading_log.db",
   "total": {
-    "count": 0,
+    "count": 3,
     "win_rate": 0.0,
-    "net_pnl": 0.0
+    "net_pnl": -19280.0
   },
-  "message": "暂无已平仓交易"
+  "by_strategy": {
+    "中线": {
+      "count": 3,
+      "win_rate": 0.0,
+      "net_pnl": -19280.0
+    }
+  },
+  "by_reason": {
+    "触发止损（-5.4%）[medium]": {
+      "count": 1,
+      "win_rate": 0.0,
+      "net_pnl": -47.0
+    },
+    "触发止损（-5.6%）[medium]": {
+      "count": 1,
+      "win_rate": 0.0,
+      "net_pnl": -210.0
+    },
+    "触发止损（-6.7%）[medium]": {
+      "count": 1,
+      "win_rate": 0.0,
+      "net_pnl": -19023.0
+    }
+  },
+  "by_month": {
+    "2026-08": {
+      "count": 3,
+      "win_rate": 0.0,
+      "net_pnl": -19280.0
+    }
+  },
+  "by_factor_signal": {
+    "弱因子/AI主观": {
+      "count": 2,
+      "win_rate": 0.0,
+      "net_pnl": -257.0
+    },
+    "强因子共振": {
+      "count": 1,
+      "win_rate": 0.0,
+      "net_pnl": -19023.0
+    }
+  },
+  "by_ma": {
+    "均线多头=是": {
+      "count": 3,
+      "win_rate": 0.0,
+      "net_pnl": -19280.0
+    }
+  },
+  "by_rsi": {
+    "RSI=正常": {
+      "count": 3,
+      "win_rate": 0.0,
+      "net_pnl": -19280.0
+    }
+  },
+  "by_macd": {
+    "MACD金叉=否": {
+      "count": 2,
+      "win_rate": 0.0,
+      "net_pnl": -257.0
+    },
+    "MACD金叉=是": {
+      "count": 1,
+      "win_rate": 0.0,
+      "net_pnl": -19023.0
+    }
+  },
+  "by_kdj": {
+    "KDJ金叉=否": {
+      "count": 2,
+      "win_rate": 0.0,
+      "net_pnl": -257.0
+    },
+    "KDJ金叉=是": {
+      "count": 1,
+      "win_rate": 0.0,
+      "net_pnl": -19023.0
+    }
+  },
+  "by_volume": {
+    "量=放量": {
+      "count": 2,
+      "win_rate": 0.0,
+      "net_pnl": -257.0
+    },
+    "量=正常": {
+      "count": 1,
+      "win_rate": 0.0,
+      "net_pnl": -19023.0
+    }
+  },
+  "by_turnover": {
+    "换手=1-3%": {
+      "count": 1,
+      "win_rate": 0.0,
+      "net_pnl": -47.0
+    },
+    "换手=>5%": {
+      "count": 2,
+      "win_rate": 0.0,
+      "net_pnl": -19233.0
+    }
+  }
 }

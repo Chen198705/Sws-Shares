@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-15T21:13:02",
+  "generated_at": "2026-08-16T17:18:33",
   "stocks": 4871,
   "factors": {
     "mom_12_1": {
@@ -111,6 +111,30 @@
       "flags": [],
       "crowded": false,
       "periods": 60
+    },
+    "value_ep": {
+      "available": false,
+      "note": "样本不足 90 日"
+    },
+    "value_bp": {
+      "available": false,
+      "note": "样本不足 90 日"
+    },
+    "value_dp": {
+      "available": false,
+      "note": "样本不足 90 日"
+    },
+    "size_logcap": {
+      "available": false,
+      "note": "样本不足 90 日"
+    },
+    "quality_roe": {
+      "available": false,
+      "note": "样本不足 90 日"
+    },
+    "quality_gross_margin": {
+      "available": false,
+      "note": "样本不足 90 日"
     }
   }
 }
