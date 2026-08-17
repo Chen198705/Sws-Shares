@@ -1,10 +1,10 @@
 {
-  "version": "2026-08-16.1",
-  "generated_at": "2026-08-16T17:20:05",
+  "version": "2026-08-17.1",
+  "generated_at": "2026-08-17T09:02:08",
   "confidence": "L1",
   "regime": {
     "state": "🌊 震荡市",
-    "date": "2026-08-16",
+    "date": "2026-08-17",
     "metrics": {
       "close": 3927.176,
       "ma20": 3870.3955499999997,
@@ -182,14 +182,15 @@
     {
       "id": "policy_industry_plan_car5",
       "policy_type": "industry_plan",
-      "status": "L1 候选",
-      "weight": 0.0,
+      "status": "active",
+      "weight": 0.05,
       "last_verified": "2026-08-16",
+      "last_updated": "2026-08-17",
       "n_events": 5,
       "mean_car": 0.023012,
       "direction_consistency": 0.8,
       "rejection_rate_bh": 0.8,
-      "decision": "入模候选（权重待 Claude 决策启用）",
+      "decision": "入模（D-006）；保守起步，L2 验证后调至 0.08-0.10",
       "note": "EXP-011：5 样本、方向一致 80%、BH 显著率 80%、CAR +2.30%"
     },
     {
@@ -198,6 +199,7 @@
       "status": "待观察",
       "weight": 0.0,
       "last_verified": "2026-08-16",
+      "last_updated": "2026-08-17",
       "n_events": 5,
       "mean_car": 0.0668,
       "direction_consistency": 0.6,
@@ -208,15 +210,16 @@
     {
       "id": "policy_rrr_cut_car5",
       "policy_type": "mp_rrr_cut",
-      "status": "拒入",
+      "status": "disabled",
       "weight": 0.0,
       "last_verified": "2026-08-16",
+      "last_updated": "2026-08-17",
       "n_events": 16,
       "mean_car": -0.024907,
       "direction_consistency": 0.4375,
       "rejection_rate_bh": 0.4375,
-      "decision": "拒入",
-      "note": "EXP-011：16 样本、方向一致 43.8%，与预期相反（F-20260816-001）"
+      "decision": "拒入（D-007）；F-20260817-001",
+      "note": "EXP-011：16 样本、方向一致 43.8%，与预期相反；系统性负 alpha，与应对性降准内生性偏差有关（详见 FAILURES.md F-20260817-001）"
     },
     {
       "id": "policy_lpr_cut_car5",
@@ -224,6 +227,7 @@
       "status": "拒入",
       "weight": 0.0,
       "last_verified": "2026-08-16",
+      "last_updated": "2026-08-17",
       "n_events": 4,
       "mean_car": -0.011086,
       "direction_consistency": 0.5,
@@ -237,6 +241,7 @@
       "status": "样本不足",
       "weight": 0.0,
       "last_verified": "2026-08-16",
+      "last_updated": "2026-08-17",
       "n_events": 3,
       "mean_car": 0.011486,
       "direction_consistency": 0.6667,
@@ -250,6 +255,7 @@
       "status": "样本不足",
       "weight": 0.0,
       "last_verified": "2026-08-16",
+      "last_updated": "2026-08-17",
       "n_events": 1,
       "mean_car": -0.05512,
       "direction_consistency": 0.0,

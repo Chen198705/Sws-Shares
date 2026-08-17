@@ -34,9 +34,9 @@ def main() -> None:
     pf = contract.get("policy_factors") or []
     check(len(pf) >= 5, "政策因子契约", f"{len(pf)} factors")
     p1 = next((f for f in pf if f["id"] == "policy_industry_plan_car5"), None)
-    check(p1 is not None and "候选" in (p1 or {}).get("status", ""), "policy_industry_plan_car5 登记",
+    check(p1 is not None and "active" in (p1 or {}).get("status", ""), "policy_industry_plan_car5 登记",
           str(p1 and p1.get("status")))
-    check(float(p1.get("weight") or 0) == 0.0, "政策因子权重 0（待决策启用，不改变实盘）")
+    check(float(p1.get("weight") or 0) > 0, "政策因子已激活", f"weight={p1.get('weight')}")
     rl = contract.get("risk_limits") or {}
     check(all(k in rl for k in ("max_position_pct", "min_cash_pct", "single_stock_pct")), "风险上限契约")
     check(bool(contract.get("horizon_weights")), "周期权重契约")
@@ -55,7 +55,11 @@ def main() -> None:
     check("研究层价值因子" in line, "AI 提示词注入", line.strip())
 
     from ai_client import _policy_overlay_text
-    check(_policy_overlay_text() == "", "政策叠加未激活（权重 0）")
+    # D-006：policy_industry_plan_car5 权重已改为 0.05，检查配置正确（文本内容取决于窗口内是否有事件）
+    from ai_client import get_research_overlay
+    pfs = get_research_overlay().get("policy_factors") or []
+    active = [f for f in pfs if float(f.get("weight") or 0) > 0]
+    check(len(active) >= 1, "政策因子激活", f"{active[0]['id']} weight={active[0]['weight']}")
 
     from market_scanner import score_stock
     ind = {"量比": 1.2, "RSI(14)": 55, "MACD金叉": False, "KDJ金叉": False,
