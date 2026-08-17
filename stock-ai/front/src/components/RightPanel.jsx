@@ -98,10 +98,39 @@ function ResearchPanel() {
   );
 }
 
+function OrderRow({ o, fmt }) {
+  const realizedPnl = o.direction === 'sell' && o.status === 'filled' && o.pnl != null ? Number(o.pnl) : null;
+  const pnlColor = realizedPnl != null && realizedPnl >= 0 ? 'var(--red)' : 'var(--green)';
+  return (
+    <div style={{ marginBottom: '10px', paddingBottom: '10px', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+        <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '10px', background: o.direction === 'buy' ? 'rgba(244,63,94,0.15)' : 'rgba(16,185,129,0.15)', color: o.direction === 'buy' ? 'var(--red)' : 'var(--green)', border: `1px solid ${o.direction === 'buy' ? 'rgba(244,63,94,0.3)' : 'rgba(16,185,129,0.3)'}` }}>
+          {o.direction === 'buy' ? '买' : '卖'}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.3 }}>{o.code}</div>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.stock_name || ''}</div>
+        </div>
+        <span style={{ marginLeft: 'auto', fontSize: '11px', color: o.status === 'filled' ? 'var(--green)' : 'var(--text-muted)', flexShrink: 0 }}>{o.status === 'filled' ? '✓ 已成交' : o.status}</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+        <span>×{o.volume} @ ¥{fmt(o.price)}</span>
+        <span>{o.time ? o.time.slice(0, 16).replace('T', ' ') : ''}</span>
+      </div>
+      {realizedPnl != null && (
+        <div style={{ fontSize: '12px', fontWeight: 600, color: pnlColor, fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+          已实现盈亏 {realizedPnl >= 0 ? '+' : ''}{fmt(realizedPnl)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RightPanel({ onSelect = () => {} }) {
   const [portfolio, setPortfolio] = useState(null);
   const [orders, setOrders] = useState([]);
   const [tab, setTab] = useState('pos');
+  const [orderDir, setOrderDir] = useState('all');
   const [error, setError] = useState(null);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [hoveredRow, setHoveredRow] = useState(null);
@@ -127,6 +156,7 @@ export default function RightPanel({ onSelect = () => {} }) {
   const bal = portfolio?.balance || {};
   const positions = portfolio?.positions || [];
   const isFirstLoad = portfolio === null;
+  const filteredOrders = orderDir === 'all' ? orders : orders.filter(o => o.direction === orderDir);
 
   return (
     <div>
@@ -174,10 +204,6 @@ export default function RightPanel({ onSelect = () => {} }) {
                 const pnl = p.unrealized_pnl || 0;
                 const costBasis = (p.avg_cost || 0) * (p.volume || 0);
                 const pct = costBasis > 0 ? (pnl / costBasis * 100) : 0;
-                const pnlColor = pnl >= 0 ? 'var(--red)' : 'var(--green)';
-                const pnlTag = pnl >= 0
-                  ? { label: '盈', bg: 'rgba(244,63,94,0.12)', color: 'var(--red)' }
-                  : { label: '亏', bg: 'rgba(16,185,129,0.12)', color: 'var(--green)' };
 
                 return (
                   <div key={i}
@@ -194,7 +220,7 @@ export default function RightPanel({ onSelect = () => {} }) {
                       cursor: 'pointer',
                     }}
                   >
-                    {/* 代码/名称 合并单元格 */}
+                    {/* 代码/名称 */}
                     <div style={{ width: '60px', flexShrink: 0 }}>
                       <div style={{ fontWeight: 600, fontSize: '13px', cursor: 'pointer', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', lineHeight: 1.3 }}
                         onClick={e => { e.stopPropagation(); onSelect(p.stock_code); }}>
@@ -216,7 +242,7 @@ export default function RightPanel({ onSelect = () => {} }) {
                     </div>
 
                     {/* 盈亏 */}
-                    <div style={{ width: '68px', fontFamily: 'var(--font-mono)', fontSize: '12px', textAlign: 'right', color: pnlColor, fontWeight: 600, flexShrink: 0, marginRight: '12px' }}
+                    <div style={{ width: '68px', fontFamily: 'var(--font-mono)', fontSize: '12px', textAlign: 'right', color: pnl >= 0 ? 'var(--red)' : 'var(--green)', fontWeight: 600, flexShrink: 0, marginRight: '12px' }}
                       onClick={e => e.stopPropagation()}>
                       <div>{pnl >= 0 ? '+' : ''}{fmt(pnl)}</div>
                       <div style={{ fontSize: '10px', opacity: 0.8 }}>{pct >= 0 ? '+' : ''}{fmt(pct)}%</div>
@@ -242,36 +268,21 @@ export default function RightPanel({ onSelect = () => {} }) {
         <div className="card">
           <div className="card-header">
             <span className="card-title">最近订单</span>
-            <button className="btn btn-ghost btn-sm" onClick={() => window.location.reload()}>刷新</button>
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+              <button className={`btn btn-ghost btn-sm ${orderDir === 'all' ? 'active' : ''}`} onClick={() => setOrderDir('all')}>全部</button>
+              <button className={`btn btn-ghost btn-sm ${orderDir === 'buy' ? 'active' : ''}`} onClick={() => setOrderDir('buy')}>买入</button>
+              <button className={`btn btn-ghost btn-sm ${orderDir === 'sell' ? 'active' : ''}`} onClick={() => setOrderDir('sell')}>卖出</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => window.location.reload()}>刷新</button>
+            </div>
           </div>
           <div className="card-body">
-            {isFirstLoad ? <InlineSpinner text="加载订单..." /> : orders.length > 0 ? orders.map((o, i) => {
-              const realizedPnl = o.direction === 'sell' && o.status === 'filled' && o.pnl != null ? Number(o.pnl) : null;
-              const pnlColor = realizedPnl != null && realizedPnl >= 0 ? 'var(--red)' : 'var(--green)';
-              return (
-                <div key={i} style={{ marginBottom: '10px', paddingBottom: '10px', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '10px', background: o.direction === 'buy' ? 'rgba(244,63,94,0.15)' : 'rgba(16,185,129,0.15)', color: o.direction === 'buy' ? 'var(--red)' : 'var(--green)', border: `1px solid ${o.direction === 'buy' ? 'rgba(244,63,94,0.3)' : 'rgba(16,185,129,0.3)'}` }}>
-                      {o.direction === 'buy' ? '买' : '卖'}
-                    </span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.3 }}>{o.code}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.stock_name || ''}</div>
-                    </div>
-                    <span style={{ marginLeft: 'auto', fontSize: '11px', color: o.status === 'filled' ? 'var(--green)' : 'var(--text-muted)', flexShrink: 0 }}>{o.status === 'filled' ? '✓ 已成交' : o.status}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-                    <span>×{o.volume} @ ¥{fmt(o.price)}</span>
-                    <span>{o.time ? o.time.slice(0, 16).replace('T', ' ') : ''}</span>
-                  </div>
-                  {realizedPnl != null && (
-                    <div style={{ fontSize: '12px', fontWeight: 600, color: pnlColor, fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
-                      已实现盈亏 {realizedPnl >= 0 ? '+' : ''}{fmt(realizedPnl)}
-                    </div>
-                  )}
-                </div>
-              );
-            }) : <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: '13px' }}>暂无订单记录</div>}
+            {isFirstLoad ? (
+              <InlineSpinner text="加载订单..." />
+            ) : filteredOrders.length > 0 ? (
+              filteredOrders.map((o, i) => <OrderRow key={i} o={o} fmt={fmt} />)
+            ) : (
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: '13px' }}>暂无订单记录</div>
+            )}
           </div>
         </div>
       )}

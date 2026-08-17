@@ -3,7 +3,7 @@
 
 断言规范：
 - 每条会随决策变化的断言前必须加 # ASSERT[decision=D-XXX, status=...] 注释
-- 详见 /Users/chenjianhui/Claude/Projects/Stocks/handover/VERIFY_LANDING_ASSERTION_STYLE.md
+- 详见 handover/VERIFY_LANDING_ASSERTION_STYLE.md（Claude 项目规范）
 """
 
 import json
@@ -109,6 +109,14 @@ def main() -> None:
     # 止损止盈参数由迭代引擎调整，不受 D-006 政策因子决策影响
     check(params.short_stop_loss == -0.03 and params.short_take_profit == 0.08, "短线止损止盈映射",
           f"{params.short_stop_loss}/{params.short_take_profit}")
+    # ASSERT[decision=PENDING, status=after]
+    # 迭代分层：满 3 笔只观察不调参，满 20 笔复核调参且单次限幅
+    check(params.observation_trades_threshold == 3 and params.adjust_trades_threshold == 20,
+          "迭代分层阈值",
+          f"观察 {params.observation_trades_threshold} 笔 / 复核 {params.adjust_trades_threshold} 笔")
+    import iteration_engine
+    check(iteration_engine._DAMP_LIMITS.get("short_stop_loss") == 0.02,
+          "单次调参阻尼", f"{iteration_engine._DAMP_LIMITS}")
 
     import trading_bot
     # ASSERT[decision=PENDING, status=after]

@@ -36,7 +36,7 @@ from strategy_store import (
     close_attribution_for_code,
 )
 from industry_map import sector_concentration_ok
-from iteration_engine import run_iteration
+from iteration_engine import run_iteration, iteration_running
 from market_scanner import scan_market, log_scan_result
 
 LOG_DIR = Path(__file__).parent / "logs"
@@ -255,10 +255,31 @@ def _parse_bot_direction(text: str) -> str:
 
 
 def trigger_iteration():
-    ok, count = should_iterate()
-    if ok:
-        print(f"[迭代] 已积累 {count} 笔平仓，触发策略复盘...")
-        Thread(target=run_iteration, daemon=True).start()
+    obs_cnt, rev_cnt, obs_ready, rev_ready = should_iterate()
+    if not obs_ready and not rev_ready:
+        return
+    if iteration_running():
+        print(f"[迭代] 已积累观察 {obs_cnt} 笔/复核 {rev_cnt} 笔，但已有迭代进程在运行，跳过本次")
+        return
+    stage = "复核调参" if rev_ready else "观察"
+    print(f"[迭代] 观察 {obs_cnt} 笔、复核 {rev_cnt} 笔，触发{stage}...")
+    # 用独立子进程 + 显式 PYTHONPATH，避免线程继承环境的静默失败
+    import subprocess
+    api_dir = Path(__file__).parent
+    env = {**os.environ}
+    site_pkgs = api_dir / ".venv" / "lib" / "python3.9" / "site-packages"
+    env["PYTHONPATH"] = os.pathsep.join([
+        str(site_pkgs), str(api_dir),
+        env.get("PYTHONPATH", ""),
+    ]).strip(os.pathsep)
+    log_file = LOG_DIR / "iteration_run.log"
+    log_file.parent.mkdir(exist_ok=True)
+    with log_file.open("a", encoding="utf-8") as f:
+        subprocess.Popen(
+            [str(sys.executable), str(api_dir / "iteration_engine.py")],
+            cwd=str(api_dir), env=env,
+            stdout=f, stderr=subprocess.STDOUT,
+        )
 
 
 _HORIZON_LABELS = {"short": "短线", "medium": "中线", "long": "长线"}
@@ -621,7 +642,8 @@ def main_loop(stop_event):
     print(f"短线止损{params.short_stop_loss*100:.0f}%止盈{params.short_take_profit*100:.0f}%  中线止损{params.mid_stop_loss*100:.0f}%止盈{params.mid_take_profit*100:.0f}%  长线止损{params.long_stop_loss*100:.0f}%止盈{params.long_take_profit*100:.0f}%")
     print(f"持仓检查每{POSITION_CHECK_INTERVAL//60}分钟 · 全市场选股每{MARKET_SCAN_INTERVAL//60}分钟")
     print(f"回撤止盈: 短线+{params.short_trailing_activate*100:.0f}%启动回撤{params.short_trailing_drawdown*100:.0f}%落袋  中线+{params.mid_trailing_activate*100:.0f}%启动回撤{params.mid_trailing_drawdown*100:.0f}%落袋")
-    print(f"迭代触发: 满 {params.closed_trades_threshold} 笔平仓")
+    print(f"迭代触发: 满 {params.observation_trades_threshold} 笔观察 / 满 {params.adjust_trades_threshold} 笔复核调参")
+    print(f"迭代水位: 上次观察卖单 id={params.last_iterated_sell_id}，上次复核卖单 id={params.last_reviewed_sell_id}")
     Thread(target=run_scheduled_reports, args=(stop_event,), daemon=True).start()
     scan_rounds = MARKET_SCAN_INTERVAL // POSITION_CHECK_INTERVAL
     scan_round = 0  # 0 表示本轮执行全市场扫描

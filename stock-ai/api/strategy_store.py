@@ -26,7 +26,10 @@ class StrategyParams:
     iteration: int = 0
     last_iteration_at: Optional[str] = None
     last_insight: str = ""
-    closed_trades_threshold: int = 5
+    observation_trades_threshold: int = 3
+    adjust_trades_threshold: int = 20
+    last_iterated_sell_id: int = 0
+    last_reviewed_sell_id: int = 0
     # ---- 按策略类型分离的止损止盈 ----
     short_stop_loss: float = -0.03
     short_take_profit: float = 0.08
@@ -63,9 +66,43 @@ def init_schema():
     c.execute("""CREATE TABLE IF NOT EXISTS iteration_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ts TEXT, iteration_num INTEGER, closed_trades_count INTEGER,
-        insights TEXT, params_delta TEXT, ai_model_response TEXT)""")
+        insights TEXT, params_delta TEXT, ai_model_response TEXT,
+        stage TEXT DEFAULT 'review')""")
+    c.execute("""CREATE TABLE IF NOT EXISTS observation_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        iteration_num INTEGER, ts TEXT, closed_trades_count INTEGER,
+        insights TEXT, ai_model_response TEXT)""")
     try:
         c.execute("ALTER TABLE trade_attribution ADD COLUMN strategy_type TEXT DEFAULT '中线'")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE iteration_log ADD COLUMN stage TEXT DEFAULT 'review'")
+    except Exception:
+        pass
+    try:
+        existing = {r[0] for r in c.execute("SELECT key FROM strategy_params").fetchall()}
+        now = datetime.now().isoformat()
+        for key, val in (("observation_trades_threshold", 3), ("adjust_trades_threshold", 20)):
+            if key not in existing:
+                c.execute(
+                    "INSERT OR REPLACE INTO strategy_params (key,value,updated_at) VALUES (?,?,?)",
+                    (key, str(val), now))
+    except Exception:
+        pass
+    try:
+        row = c.execute(
+            "SELECT 1 FROM strategy_params WHERE key='last_reviewed_sell_id'").fetchone()
+        if not row:
+            try:
+                m = c.execute(
+                    "SELECT COALESCE(MAX(id),0) FROM trades WHERE direction='sell'").fetchone()
+                watermark = int(m[0] or 0)
+            except Exception:
+                watermark = 0
+            c.execute(
+                "INSERT OR REPLACE INTO strategy_params (key,value,updated_at) VALUES ('last_reviewed_sell_id',?,?)",
+                (str(watermark), datetime.now().isoformat()))
     except Exception:
         pass
     c.commit()
@@ -89,17 +126,22 @@ def load_params() -> StrategyParams:
         "short_trailing_activate", "short_trailing_drawdown",
         "mid_trailing_activate", "mid_trailing_drawdown",
     }
-    int_keys = {"min_confidence", "closed_trades_threshold", "iteration"}
+    int_keys = {"min_confidence", "observation_trades_threshold",
+                "adjust_trades_threshold", "iteration",
+                "last_iterated_sell_id", "last_reviewed_sell_id"}
+    legacy_aliases = {"closed_trades_threshold": "observation_trades_threshold"}
     for key, val in rows:
-        if hasattr(p, key):
-            if key == "sector_weights":
-                setattr(p, key, json.loads(val))
-            elif key in float_keys:
-                setattr(p, key, float(val))
-            elif key in int_keys:
-                setattr(p, key, int(val))
-            else:
-                setattr(p, key, val)
+        key = legacy_aliases.get(key, key)
+        if not hasattr(p, key):
+            continue
+        if key == "sector_weights":
+            setattr(p, key, json.loads(val))
+        elif key in float_keys:
+            setattr(p, key, float(val))
+        elif key in int_keys:
+            setattr(p, key, int(val))
+        else:
+            setattr(p, key, val)
     return p
 
 
@@ -158,6 +200,10 @@ def get_effective_params() -> StrategyParams:
 def log_attribution(trade_id: int, ai_reason: str, market_context: str,
                     entry_indicators: str, strategy_type: str = "中线"):
     c = _conn()
+    exists = c.execute("SELECT 1 FROM trade_attribution WHERE trade_id=?", (trade_id,)).fetchone()
+    if exists:
+        c.close()
+        return
     c.execute("""INSERT INTO trade_attribution
         (trade_id,strategy_type,ai_reason,market_context,entry_indicators)
         VALUES (?,?,?,?,?)""",
@@ -220,7 +266,7 @@ def reconcile_closed_trades() -> list:
         FROM trade_attribution ta JOIN trades t ON t.id = ta.trade_id
         WHERE t.direction = 'buy' ORDER BY ta.trade_id""").fetchall()
     sells = c.execute("""
-        SELECT ts,code,volume,pnl,reason FROM trades
+        SELECT id,ts,code,volume,pnl,reason,strategy_type,price FROM trades
         WHERE direction = 'sell' ORDER BY id""").fetchall()
     c.close()
 
@@ -232,10 +278,8 @@ def reconcile_closed_trades() -> list:
         pool.setdefault(rec["code"], []).append(rec)
 
     closed = []
-    for ts, code, sell_vol, sell_pnl, reason in sells:
+    for sell_id, ts, code, sell_vol, sell_pnl, reason, sell_stype, sell_price in sells:
         q = pool.get(code)
-        if not q:
-            continue
         remaining = sell_vol
         while q and remaining > 0:
             b = q[0]
@@ -253,6 +297,16 @@ def reconcile_closed_trades() -> list:
             remaining -= alloc
             if b["remaining"] <= 0:
                 q.pop(0)
+        if remaining > 0:
+            stype = _HORIZON_ALIASES.get((sell_stype or "").strip().lower(), sell_stype or "中线")
+            closed.append({
+                "id": ("sell", sell_id), "strategy_type": stype,
+                "ai_reason": "", "market_context": "",
+                "entry_indicators": "",
+                "pnl": (sell_pnl or 0.0) * (remaining / sell_vol) if sell_vol else (sell_pnl or 0.0),
+                "closed_reason": reason or "卖出", "closed_at": ts,
+                "code": code, "direction": "sell", "price": sell_price, "volume": remaining,
+            })
     closed.sort(key=lambda x: x["closed_at"] or "", reverse=True)
     return closed
 
@@ -278,20 +332,70 @@ def get_strategy_summary() -> dict:
 
 
 def log_iteration(iteration_num: int, closed_count: int, insights: str,
-                  params_delta: str, ai_response: str):
+                  params_delta: str, ai_response: str, stage: str = "review"):
     c = _conn()
     c.execute("""INSERT INTO iteration_log
-        (ts,iteration_num,closed_trades_count,insights,params_delta,ai_model_response)
-        VALUES (?,?,?,?,?,?)""",
-        (datetime.now().isoformat(), iteration_num, closed_count, insights, params_delta, ai_response))
+        (ts,iteration_num,closed_trades_count,insights,params_delta,ai_model_response,stage)
+        VALUES (?,?,?,?,?,?,?)""",
+        (datetime.now().isoformat(), iteration_num, closed_count, insights,
+         params_delta, ai_response, stage))
     c.commit()
     c.close()
 
 
-def should_iterate() -> tuple[bool, int]:
+def should_iterate() -> tuple[int, int, bool, bool]:
+    """返回 (观察待处理笔数, 复核待处理笔数, 观察是否达阈值, 复核是否达阈值)。"""
     p = load_params()
-    cnt = len(reconcile_closed_trades())
-    return cnt >= p.closed_trades_threshold, cnt
+    c = _conn()
+    try:
+        obs_base = p.last_iterated_sell_id
+        obs_row = c.execute(
+            "SELECT COUNT(*) FROM trades WHERE direction='sell' AND id > ?",
+            (obs_base,)).fetchone()
+        obs_cnt = int(obs_row[0] or 0)
+        rev_base = p.last_reviewed_sell_id
+        rev_row = c.execute(
+            "SELECT COUNT(*) FROM trades WHERE direction='sell' AND id > ?",
+            (rev_base,)).fetchone()
+        rev_cnt = int(rev_row[0] or 0)
+    except Exception:
+        obs_cnt = rev_cnt = 0
+    finally:
+        c.close()
+    return obs_cnt, rev_cnt, obs_cnt >= p.observation_trades_threshold, rev_cnt >= p.adjust_trades_threshold
+
+
+def log_observation(iteration_num: int, closed_count: int, insights: str, ai_response: str):
+    c = _conn()
+    c.execute("""INSERT INTO observation_log
+        (iteration_num,ts,closed_trades_count,insights,ai_model_response)
+        VALUES (?,?,?,?,?)""",
+        (iteration_num, datetime.now().isoformat(), closed_count, insights, ai_response))
+    c.commit()
+    c.close()
+
+
+def get_recent_observations(limit: int = 10) -> list:
+    c = _conn()
+    rows = c.execute("""
+        SELECT iteration_num, ts, closed_trades_count, insights
+        FROM observation_log ORDER BY id DESC LIMIT ?""", (limit,)).fetchall()
+    c.close()
+    return [
+        {"iteration_num": r[0], "ts": r[1], "closed_trades_count": r[2], "insights": r[3]}
+        for r in reversed(rows)
+    ]
+
+
+def get_max_sell_id() -> int:
+    c = _conn()
+    try:
+        row = c.execute("SELECT COALESCE(MAX(id),0) FROM trades WHERE direction='sell'").fetchone()
+        return int(row[0] or 0)
+    except Exception:
+        return 0
+    finally:
+        c.close()
 
 
 _HORIZON_ALIASES = {
