@@ -23,6 +23,9 @@ export const getPortfolio = () =>
 export const getOrders = () =>
   api.get('/orders').then(r => r.data);
 
+export const getOrderStats = () =>
+  api.get('/orders/stats').then(r => r.data);
+
 export const placeOrder = (payload) =>
   api.post('/order', payload).then(r => r.data);
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getPortfolio, getOrders } from '../api';
+import { getPortfolio, getOrders, getOrderStats } from '../api';
 
 function fmt(v, dec = 2) {
   return v != null ? Number(v).toLocaleString('zh-CN', { minimumFractionDigits: dec, maximumFractionDigits: dec }) : '—';
@@ -129,6 +129,7 @@ function OrderRow({ o, fmt }) {
 export default function RightPanel({ onSelect = () => {} }) {
   const [portfolio, setPortfolio] = useState(null);
   const [orders, setOrders] = useState([]);
+  const [orderStats, setOrderStats] = useState(null);
   const [tab, setTab] = useState('pos');
   const [orderDir, setOrderDir] = useState('all');
   const [error, setError] = useState(null);
@@ -139,10 +140,11 @@ export default function RightPanel({ onSelect = () => {} }) {
     let cancelled = false;
     async function load() {
       try {
-        const [p, o] = await Promise.all([getPortfolio(), getOrders()]);
+        const [p, o, s] = await Promise.all([getPortfolio(), getOrders(), getOrderStats().catch(() => null)]);
         if (!cancelled) {
           setPortfolio(p);
           setOrders(o?.orders || []);
+          setOrderStats(s);
           setError(null);
           setLastRefresh(new Date());
         }
@@ -269,12 +271,41 @@ export default function RightPanel({ onSelect = () => {} }) {
           <div className="card-header">
             <span className="card-title">最近订单</span>
             <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-              <button className={`btn btn-ghost btn-sm ${orderDir === 'all' ? 'active' : ''}`} onClick={() => setOrderDir('all')}>全部</button>
-              <button className={`btn btn-ghost btn-sm ${orderDir === 'buy' ? 'active' : ''}`} onClick={() => setOrderDir('buy')}>买入</button>
-              <button className={`btn btn-ghost btn-sm ${orderDir === 'sell' ? 'active' : ''}`} onClick={() => setOrderDir('sell')}>卖出</button>
+              <button className={`btn btn-ghost btn-sm ${orderDir === 'all' ? 'active' : ''}`} onClick={() => setOrderDir('all')}>
+                全部 <span style={{ opacity: 0.7, marginLeft: '2px' }}>{orderStats?.counts?.all ?? '—'}</span>
+              </button>
+              <button className={`btn btn-ghost btn-sm ${orderDir === 'buy' ? 'active' : ''}`} onClick={() => setOrderDir('buy')}>
+                买入 <span style={{ opacity: 0.7, marginLeft: '2px' }}>{orderStats?.counts?.buy ?? '—'}</span>
+              </button>
+              <button className={`btn btn-ghost btn-sm ${orderDir === 'sell' ? 'active' : ''}`} onClick={() => setOrderDir('sell')}>
+                卖出 <span style={{ opacity: 0.7, marginLeft: '2px' }}>{orderStats?.counts?.sell ?? '—'}</span>
+              </button>
               <button className="btn btn-ghost btn-sm" onClick={() => window.location.reload()}>刷新</button>
             </div>
           </div>
+          {orderStats && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', padding: '8px 10px', borderBottom: '1px solid var(--border)', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+              {(orderDir === 'all' || orderDir === 'sell') && orderStats.sell && (
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', color: 'var(--text-secondary)' }}>
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>卖出</span>
+                  <span>{orderStats.sell.count}笔</span>
+                  <span style={{ color: orderStats.sell.profit > 0 ? 'var(--red)' : 'var(--text-muted)' }}>盈利 +{fmt(orderStats.sell.profit)}</span>
+                  <span style={{ color: orderStats.sell.loss < 0 ? 'var(--green)' : 'var(--text-muted)' }}>亏损 {fmt(orderStats.sell.loss)}</span>
+                  <span style={{ color: orderStats.sell.net >= 0 ? 'var(--red)' : 'var(--green)', fontWeight: 700 }}>合计 {orderStats.sell.net >= 0 ? '+' : ''}{fmt(orderStats.sell.net)}</span>
+                </div>
+              )}
+              {(orderDir === 'all' || orderDir === 'buy') && orderStats.buy && (
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', color: 'var(--text-secondary)' }}>
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>买入</span>
+                  <span>{orderStats.buy.count}笔</span>
+                  <span>成本 ¥{fmt(orderStats.buy.cost)}</span>
+                  <span style={{ color: orderStats.buy.profit > 0 ? 'var(--red)' : 'var(--text-muted)' }}>浮盈 +{fmt(orderStats.buy.profit)}</span>
+                  <span style={{ color: orderStats.buy.loss < 0 ? 'var(--green)' : 'var(--text-muted)' }}>浮亏 {fmt(orderStats.buy.loss)}</span>
+                  <span style={{ color: orderStats.buy.net >= 0 ? 'var(--red)' : 'var(--green)', fontWeight: 700 }}>浮动 {orderStats.buy.net >= 0 ? '+' : ''}{fmt(orderStats.buy.net)}</span>
+                </div>
+              )}
+            </div>
+          )}
           <div className="card-body">
             {isFirstLoad ? (
               <InlineSpinner text="加载订单..." />

@@ -181,6 +181,54 @@ async def orders(request):
     except Exception as e:
         return SafeJSONResponse({"error": str(e), "orders": []}, status_code=500)
 
+async def order_stats(request):
+    try:
+        broker = get_broker()
+        all_orders = broker.get_orders(limit=100000)
+
+        def _filled_price(o):
+            fp = getattr(o, "filled_price", None)
+            return float(fp) if fp else float(o.price)
+
+        sell_filled = [o for o in all_orders if o.direction == "sell" and o.status == "filled"]
+        buy_filled = [o for o in all_orders if o.direction == "buy" and o.status == "filled"]
+
+        sell_pnl = [float(getattr(o, "pnl", 0) or 0) for o in sell_filled]
+        sell_profit = round(sum(p for p in sell_pnl if p > 0), 2)
+        sell_loss = round(sum(p for p in sell_pnl if p < 0), 2)
+        sell_net = round(sell_profit + sell_loss, 2)
+
+        buy_cost = round(sum(_filled_price(o) * o.volume for o in buy_filled), 2)
+
+        positions = broker.get_positions()
+        unreal = [float(getattr(p, "unrealized_pnl", 0) or 0) for p in positions]
+        unreal_profit = round(sum(p for p in unreal if p > 0), 2)
+        unreal_loss = round(sum(p for p in unreal if p < 0), 2)
+        unreal_net = round(unreal_profit + unreal_loss, 2)
+
+        cnt_all = len(all_orders)
+        cnt_buy = sum(1 for o in all_orders if o.direction == "buy")
+        cnt_sell = sum(1 for o in all_orders if o.direction == "sell")
+
+        return SafeJSONResponse({
+            "counts": {"all": cnt_all, "buy": cnt_buy, "sell": cnt_sell},
+            "sell": {
+                "count": len(sell_filled),
+                "profit": sell_profit,
+                "loss": sell_loss,
+                "net": sell_net,
+            },
+            "buy": {
+                "count": len(buy_filled),
+                "cost": buy_cost,
+                "profit": unreal_profit,
+                "loss": unreal_loss,
+                "net": unreal_net,
+            },
+        })
+    except Exception as e:
+        return SafeJSONResponse({"error": str(e)}, status_code=500)
+
 async def order(request):
     try:
         body = await request.json()
@@ -300,6 +348,7 @@ routes = [
     Route("/api/analyze", analyze, methods=["POST"]),
     Route("/api/portfolio", portfolio),
     Route("/api/orders", orders),
+    Route("/api/orders/stats", order_stats),
     Route("/api/order", order, methods=["POST"]),
     Route("/api/hot-stocks", hot_stocks),
     Route("/api/signal", signal, methods=["POST"]),
