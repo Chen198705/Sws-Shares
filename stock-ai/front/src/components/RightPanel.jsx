@@ -193,12 +193,12 @@ export default function RightPanel({ onSelect = () => {} }) {
               </div>
 
               {/* Header */}
-              <div style={{ display: 'flex', alignItems: 'center', padding: '5px 8px', borderBottom: '1px solid #ffffff08', minWidth: 'max-content' }}>
-                <div style={{ width: '60px', fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.05em', flexShrink: 0 }}>代码/名称</div>
-                <div style={{ width: '56px', fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textAlign: 'right', flexShrink: 0 }}>持仓</div>
-                <div style={{ width: '52px', fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textAlign: 'right', flexShrink: 0, marginRight: '8px' }}>现价</div>
-                <div style={{ width: '68px', fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textAlign: 'right', flexShrink: 0, marginRight: '12px' }}>盈亏</div>
-                <div style={{ width: '48px', fontSize: '10px', color: 'var(--text-muted)', textAlign: 'center', flexShrink: 0 }}>周期</div>
+              <div className="pos-row-header">
+                <div style={{ textAlign: 'left' }}>代码/名称</div>
+                <div style={{ textAlign: 'right' }}>持仓</div>
+                <div style={{ textAlign: 'right' }}>现价</div>
+                <div style={{ textAlign: 'right' }}>盈亏</div>
+                <div style={{ textAlign: 'center' }}>周期</div>
               </div>
 
               {/* Rows */}
@@ -209,49 +209,42 @@ export default function RightPanel({ onSelect = () => {} }) {
 
                 return (
                   <div key={i}
-                    onClick={() => { console.log('[DEBUG] onSelect called:', p.stock_code); onSelect(p.stock_code); }}
+                    className="pos-row"
+                    onClick={() => { onSelect(p.stock_code); }}
                     onMouseEnter={() => setHoveredRow(i)}
                     onMouseLeave={() => setHoveredRow(null)}
                     style={{
-                      display: 'flex', alignItems: 'center',
-                      padding: '7px 8px',
-                      minWidth: 'max-content',
                       borderBottom: i < positions.length - 1 ? '1px solid #ffffff08' : 'none',
-                      transition: 'background .12s',
                       background: hoveredRow === i ? 'rgba(59,130,246,0.25)' : 'rgba(59,130,246,0.06)',
                       cursor: 'pointer',
                     }}
                   >
-                    {/* 代码/名称 */}
-                    <div style={{ width: '60px', flexShrink: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: '13px', cursor: 'pointer', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', lineHeight: 1.3 }}
+                    <div className="col-code">
+                      <div className="code"
                         onClick={e => { e.stopPropagation(); onSelect(p.stock_code); }}>
                         {p.stock_code}
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div className="name">
                         {p.stock_name || ''}
                       </div>
                     </div>
 
-                    {/* 持仓量 */}
-                    <div style={{ width: '56px', fontFamily: 'var(--font-mono)', fontSize: '12px', textAlign: 'right', color: 'var(--text-secondary)', flexShrink: 0 }}>
+                    <div className="col-vol">
                       {(p.volume || 0).toLocaleString()}
                     </div>
 
-                    {/* 现价 */}
-                    <div style={{ width: '52px', fontFamily: 'var(--font-mono)', fontSize: '12px', textAlign: 'right', color: 'var(--text-primary)', flexShrink: 0, marginRight: '8px' }}>
+                    <div className="col-px">
                       ¥{fmt(p.current_price)}
                     </div>
 
-                    {/* 盈亏 */}
-                    <div style={{ width: '68px', fontFamily: 'var(--font-mono)', fontSize: '12px', textAlign: 'right', color: pnl >= 0 ? 'var(--red)' : 'var(--green)', fontWeight: 600, flexShrink: 0, marginRight: '12px' }}
+                    <div className="col-pnl"
+                      style={{ color: pnl >= 0 ? 'var(--red)' : 'var(--green)' }}
                       onClick={e => e.stopPropagation()}>
                       <div>{pnl >= 0 ? '+' : ''}{fmt(pnl)}</div>
-                      <div style={{ fontSize: '10px', opacity: 0.8 }}>{pct >= 0 ? '+' : ''}{fmt(pct)}%</div>
+                      <div className="pct">{pct >= 0 ? '+' : ''}{fmt(pct)}%</div>
                     </div>
 
-                    {/* 周期标签 */}
-                    <div style={{ width: '48px', textAlign: 'center', flexShrink: 0 }}>
+                    <div className="col-hz">
                       <HorizonBadge h={p.horizon} code={p.stock_code} onClick={onSelect} />
                     </div>
                   </div>
@@ -268,19 +261,21 @@ export default function RightPanel({ onSelect = () => {} }) {
 
       {tab === 'orders' && (
         <div className="card">
-          <div className="card-header">
-            <span className="card-title">最近订单</span>
-            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <div className="order-tab-head">
+            <div className="title-row">
+              <span className="card-title">最近订单</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => window.location.reload()}>刷新</button>
+            </div>
+            <div className="btn-row">
               <button className={`btn btn-ghost btn-sm ${orderDir === 'all' ? 'active' : ''}`} onClick={() => setOrderDir('all')}>
-                全部 <span style={{ opacity: 0.7, marginLeft: '2px' }}>{orderStats?.counts?.all ?? '—'}</span>
+                全部<span className="count">{orderStats?.counts?.all ?? '—'}</span>
               </button>
               <button className={`btn btn-ghost btn-sm ${orderDir === 'buy' ? 'active' : ''}`} onClick={() => setOrderDir('buy')}>
-                买入 <span style={{ opacity: 0.7, marginLeft: '2px' }}>{orderStats?.counts?.buy ?? '—'}</span>
+                买入<span className="count">{orderStats?.counts?.buy ?? '—'}</span>
               </button>
               <button className={`btn btn-ghost btn-sm ${orderDir === 'sell' ? 'active' : ''}`} onClick={() => setOrderDir('sell')}>
-                卖出 <span style={{ opacity: 0.7, marginLeft: '2px' }}>{orderStats?.counts?.sell ?? '—'}</span>
+                卖出<span className="count">{orderStats?.counts?.sell ?? '—'}</span>
               </button>
-              <button className="btn btn-ghost btn-sm" onClick={() => window.location.reload()}>刷新</button>
             </div>
           </div>
           {orderStats && (
