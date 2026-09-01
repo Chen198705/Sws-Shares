@@ -71,9 +71,15 @@ async def models_list(request):
         r = _req.get(OLLAMA_BASE_URL + "/v1/models", headers={"Authorization": "Bearer " + OLLAMA_API_KEY}, timeout=10)
         r.raise_for_status()
         all_models = [m["id"] for m in r.json().get("data", [])]
-        llm_exclude = ["embedding", "bge-", "ocr", "whisper", "asr", "tts", "rerank"]
+        # 非通用 chat LLM：Embedding / OCR / Whisper / ASR / TTS / Rerank /
+        # Dflash（推测解码架构）/ MTP（多 token 预测变体，如 MTPLX）
+        llm_exclude = ["embedding", "bge-", "ocr", "whisper", "asr", "tts", "rerank", "dflash", "mtp"]
         model_list = [m for m in all_models if not any(e in m.lower() for e in llm_exclude)]
-        return JSONResponse({"models": model_list, "current": get_client().model})
+        # 兜底：当前在用模型始终保留在列表里，避免被规则误判后下拉里看不到它
+        current = get_client().model
+        if current and current in all_models and current not in model_list:
+            model_list.insert(0, current)
+        return JSONResponse({"models": model_list, "current": current})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
