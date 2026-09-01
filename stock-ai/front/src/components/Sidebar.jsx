@@ -164,8 +164,8 @@ export default function Sidebar({ code, setCode, action, setAction, onAnalyze, a
         ) : (
           hotStocks.map((s, idx) => (
             <button key={s.code || idx} className="btn btn-ghost btn-full btn-sm mb-2" onClick={() => handleSelect(s.code)}>
-              <span style={{fontWeight:600}}>{s.code}</span>
-              <span style={{marginLeft:'6px',fontSize:'11px',color:'var(--text-muted)'}}>{s.name || ''}</span>
+             <span style={{fontWeight:600}}>{s.code}</span>
+              <span style={{marginLeft:'6px',fontSize:'11px',color:'var(--text-muted)',whiteSpace:'nowrap'}}>{s.name || ''}</span>
               <span style={{marginLeft:'auto',fontSize:'10px',color: (s.chg_pct || 0) >= 0 ? 'var(--red)' : 'var(--green)'}}>
                 {(s.chg_pct || 0) >= 0 ? '↑' : '↓'} {Math.abs(s.chg_pct || 0).toFixed(2)}%
               </span>
