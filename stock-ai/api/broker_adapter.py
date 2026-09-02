@@ -45,6 +45,7 @@ class Position:
     unrealized_pnl: float
     pnl_ratio: float
     horizon: str = "medium"  # "short" | "medium" | "long"
+    prev_close: float = 0.0  # 昨收价（A 股当日盈亏基准）
 
 
 # ─── 券商适配器基类 ───────────────────────────────────────────────

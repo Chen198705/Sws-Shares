@@ -227,6 +227,7 @@ class QMTBroker:
                 current_price=float(p.get("current_price", 0)),
                 unrealized_pnl=float(p.get("unrealized_pnl", 0)),
                 pnl_ratio=float(p.get("pnl_ratio", 0)),
+                prev_close=float(p.get("prev_close", 0.0)),
             ))
         return positions
 

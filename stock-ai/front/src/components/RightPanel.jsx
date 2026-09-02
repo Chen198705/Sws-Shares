@@ -157,6 +157,13 @@ export default function RightPanel({ onSelect = () => {} }) {
 
   const bal = portfolio?.balance || {};
   const positions = portfolio?.positions || [];
+  // 持仓明细聚合：今日盈亏（按昨收基准）与累计盈亏（按成本基准）
+  const todayTotal = positions.reduce((s, p) => {
+    const pc = Number(p.prev_close || 0);
+    if (pc <= 0) return s;
+    return s + ((Number(p.current_price || 0) - pc) * (Number(p.volume || 0)));
+  }, 0);
+  const pnlTotal = positions.reduce((s, p) => s + Number(p.unrealized_pnl || 0), 0);
   const isFirstLoad = portfolio === null;
   const filteredOrders = orderDir === 'all' ? orders : orders.filter(o => o.direction === orderDir);
 
@@ -189,7 +196,23 @@ export default function RightPanel({ onSelect = () => {} }) {
             <div className="card">
               <div className="card-header">
                 <span className="card-title">持仓明细</span>
-                <span className="text-sm text-muted">{positions.length}只</span>
+                <span className="pos-agg">
+                  <span className="pos-agg-stack" title="今日盈亏汇总（按昨收基准）">
+                    <span className="pos-agg-label">今日</span>
+                    <span className="pos-agg-val" style={{ color: todayTotal >= 0 ? 'var(--red)' : 'var(--green)' }}>
+                      {todayTotal >= 0 ? '+' : ''}{fmt(todayTotal)}
+                    </span>
+                  </span>
+                  <span className="pos-agg-sep">·</span>
+                  <span className="pos-agg-stack" title="累计盈亏汇总（按成本基准）">
+                    <span className="pos-agg-label">累计盈亏</span>
+                    <span className="pos-agg-val" style={{ color: pnlTotal >= 0 ? 'var(--red)' : 'var(--green)' }}>
+                      {pnlTotal >= 0 ? '+' : ''}{fmt(pnlTotal)}
+                    </span>
+                  </span>
+                  <span className="pos-agg-sep">·</span>
+                  <span className="text-sm text-muted">{positions.length}只</span>
+                </span>
               </div>
 
               {/* Header */}
@@ -197,6 +220,7 @@ export default function RightPanel({ onSelect = () => {} }) {
                 <div style={{ textAlign: 'left' }}>代码/名称</div>
                 <div style={{ textAlign: 'right' }}>持仓</div>
                 <div style={{ textAlign: 'right' }}>现价</div>
+                <div style={{ textAlign: 'right' }}>今日</div>
                 <div style={{ textAlign: 'right' }}>盈亏</div>
                 <div style={{ textAlign: 'center' }}>周期</div>
               </div>
@@ -206,6 +230,9 @@ export default function RightPanel({ onSelect = () => {} }) {
                 const pnl = p.unrealized_pnl || 0;
                 const costBasis = (p.avg_cost || 0) * (p.volume || 0);
                 const pct = costBasis > 0 ? (pnl / costBasis * 100) : 0;
+                const prevClose = Number(p.prev_close || 0);
+                const todayPnl = prevClose > 0 ? (p.current_price - prevClose) * (p.volume || 0) : 0;
+                const todayPct = prevClose > 0 ? ((p.current_price / prevClose - 1) * 100) : 0;
 
                 return (
                   <div key={i}
@@ -235,6 +262,13 @@ export default function RightPanel({ onSelect = () => {} }) {
 
                     <div className="col-px">
                       ¥{fmt(p.current_price)}
+                    </div>
+
+                    <div className="col-today"
+                      style={{ color: todayPnl >= 0 ? 'var(--red)' : 'var(--green)' }}
+                      onClick={e => e.stopPropagation()}>
+                      <div>{prevClose > 0 ? (todayPnl >= 0 ? '+' : '') + fmt(todayPnl) : '—'}</div>
+                      <div className="pct">{prevClose > 0 ? (todayPct >= 0 ? '+' : '') + fmt(todayPct) + '%' : '—'}</div>
                     </div>
 
                     <div className="col-pnl"

@@ -282,6 +282,7 @@ class SimulationBroker(BrokerAdapter):
             stock = get_stock_realtime(stock_code)
             cur_price = stock.get("最新价", avg_cost)
             stock_name = stock.get("股票名", stock_name)
+            prev_close = float(stock.get("昨收", 0.0) or 0.0)
             unrealized = (cur_price - avg_cost) * volume
             pnl_ratio = (cur_price / avg_cost - 1) * 100 if avg_cost > 0 else 0.0
             positions.append(Position(
@@ -293,6 +294,7 @@ class SimulationBroker(BrokerAdapter):
                 unrealized_pnl=unrealized,
                 pnl_ratio=pnl_ratio,
                 horizon=horizon,
+                prev_close=prev_close,
             ))
         return positions
 

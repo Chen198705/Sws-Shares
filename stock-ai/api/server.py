@@ -57,7 +57,8 @@ def serialize_positions(positions):
     return [
         {"stock_code": p.stock_code, "stock_name": getattr(p, "stock_name", p.stock_code),
          "volume": p.volume, "avg_cost": getattr(p, "avg_cost", 0), "current_price": getattr(p, "current_price", 0),
-         "unrealized_pnl": getattr(p, "unrealized_pnl", 0), "pnl_ratio": getattr(p, "pnl_ratio", 0), "horizon": getattr(p, "horizon", "medium")}
+         "unrealized_pnl": getattr(p, "unrealized_pnl", 0), "pnl_ratio": getattr(p, "pnl_ratio", 0),
+         "horizon": getattr(p, "horizon", "medium"), "prev_close": getattr(p, "prev_close", 0.0)}
         for p in positions
     ]
 
