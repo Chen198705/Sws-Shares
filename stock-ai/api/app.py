@@ -61,11 +61,14 @@ if exec_btn and t_code:
             else:
                 st.session_state.trade_msg = ("error", f"❌ 买入失败：{order.status}")
         else:
-            order = broker.sell(t_code, vol, price)
-            if order.status == "filled":
-                st.session_state.trade_msg = ("warning", f"⚠️ 卖出成功：{t_code} × {vol}股 @{order.filled_price:.2f}")
+            if broker.sellable_volume(t_code) <= 0:
+                st.session_state.trade_msg = ("error", f"🔒 {t_code} 当日买入（T+0），按 A股规则次日才能卖")
             else:
-                st.session_state.trade_msg = ("error", f"❌ 卖出失败：{order.status}")
+                order = broker.sell(t_code, vol, price)
+                if order is not None and order.status == "filled":
+                    st.session_state.trade_msg = ("warning", f"⚠️ 卖出成功：{t_code} × {vol}股 @{order.filled_price:.2f}")
+                else:
+                    st.session_state.trade_msg = ("error", f"❌ 卖出失败")
     except Exception as e:
         st.session_state.trade_msg = ("error", f"❌ 下单失败: {e}")
 

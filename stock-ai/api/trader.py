@@ -134,9 +134,15 @@ def execute_trade(signal: dict, stock_code: str) -> dict:
         if not pos:
             return {"executed": False, "reason": "no_position", "signal": signal}
 
+        # ── T+1 闸口：T+0 买入当日不可卖 ──
+        if broker.sellable_volume(stock_code) <= 0:
+            return {"executed": False, "reason": "t_plus_one_locked", "signal": signal}
+
         # 全部清仓或按比例卖出
         volume = pos.volume
         order = broker.sell(stock_code, volume, signal.get("entry_price"))
+        if order is None:
+            return {"executed": False, "reason": "t_plus_one_locked", "signal": signal}
         summary = format_order_summary(order)
         print(f"[自动交易] {summary}")
         return {"executed": order.status == "filled", "order": order, "signal": signal}

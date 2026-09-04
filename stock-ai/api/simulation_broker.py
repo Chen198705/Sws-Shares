@@ -184,32 +184,11 @@ class SimulationBroker(BrokerAdapter):
             order.status = "rejected"
             return order
 
-    def sell(self, stock_code: str, volume: int, price: Optional[float] = None, horizon: str = "medium") -> Order:
-        from market_data import get_stock_realtime
+    def sellable_volume(self, stock_code: str) -> int:
+        """A 股 T+1：可卖量 = 今日之前的累计买入 - 累计已卖出（已 filled）。
+        当日买入（T+0）不可卖，返回 0。
+        """
         stock_code = normalize_stock_code(stock_code)
-        stock = get_stock_realtime(stock_code)
-        stock_name = stock.get("股票名", stock_code)
-        exec_price = price if price else stock.get("最新价", 0.0)
-
-        row = self._conn.execute(
-            "SELECT volume, avg_cost FROM positions WHERE stock_code = ?", (stock_code,)
-        ).fetchone()
-        if not row or row[0] < volume:
-            order = Order(
-                order_id=str(uuid.uuid4())[:8].upper(),
-                stock_code=stock_code,
-                stock_name=stock_name,
-                direction="sell",
-                price=exec_price,
-                volume=volume,
-                status="rejected",
-                horizon=horizon,
-                created_at=datetime.now().isoformat(),
-            )
-            self._save_order(order)
-            return order
-
-        # A股 T+1：当日买入部分不可卖，可卖量 = 今日之前累计买入 - 已卖出
         today = datetime.now().strftime("%Y-%m-%d")
         bought_before = self._conn.execute(
             "SELECT COALESCE(SUM(volume),0) FROM orders WHERE stock_code=? AND direction='buy' AND status='filled' AND substr(filled_at,1,10) < ?",
@@ -217,20 +196,27 @@ class SimulationBroker(BrokerAdapter):
         sold_all = self._conn.execute(
             "SELECT COALESCE(SUM(volume),0) FROM orders WHERE stock_code=? AND direction='sell' AND status='filled'",
             (stock_code,)).fetchone()[0] or 0
-        if bought_before - sold_all < volume:
-            order = Order(
-                order_id=str(uuid.uuid4())[:8].upper(),
-                stock_code=stock_code,
-                stock_name=stock_name,
-                direction="sell",
-                price=exec_price,
-                volume=volume,
-                status="rejected",
-                horizon=horizon,
-                created_at=datetime.now().isoformat(),
-            )
-            self._save_order(order)
-            return order
+        return max(0, bought_before - sold_all)
+
+    def sell(self, stock_code: str, volume: int, price: Optional[float] = None, horizon: str = "medium") -> Optional[Order]:
+        from market_data import get_stock_realtime
+        stock_code = normalize_stock_code(stock_code)
+        stock = get_stock_realtime(stock_code)
+        stock_name = stock.get("股票名", stock_code)
+        exec_price = price if price else stock.get("最新价", 0.0)
+
+        # ── T+1 闸口（最高优先级）：T+0 买入当日不可卖，静默拒绝，不落 orders 表 ──
+        available = self.sellable_volume(stock_code)
+        if available <= 0:
+            return None
+        if available < volume:
+            volume = available
+
+        row = self._conn.execute(
+            "SELECT volume, avg_cost FROM positions WHERE stock_code = ?", (stock_code,)
+        ).fetchone()
+        if not row or row[0] < volume:
+            return None
 
         realized_pnl = (exec_price - row[1]) * volume
         order = Order(

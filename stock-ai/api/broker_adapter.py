@@ -59,8 +59,22 @@ class BrokerAdapter(ABC):
         ...
 
     @abstractmethod
-    def sell(self, stock_code: str, volume: int, price: Optional[float] = None) -> Order:
+    def sell(self, stock_code: str, volume: int, price: Optional[float] = None) -> Optional[Order]:
+        """卖出下单。
+        返回 None 表示被 T+1 闸口阻挡（T+0 买入当日不可卖），调用方应静默跳过，
+        不应在 orders 表里留下 rejected 记录。
+        """
         ...
+
+    def sellable_volume(self, stock_code: str) -> int:
+        """T+1 可卖量。今日之前的累计买入 - 累计已卖出，T+0 买入返回 0。
+        默认实现读取本地持仓上限（实盘券商 T+1 由交易所处理，本地不拦截）。
+        仿真券商应重写此方法做硬闸口。
+        """
+        for p in self.get_positions():
+            if p.stock_code == stock_code:
+                return p.volume
+        return 0
 
     @abstractmethod
     def get_positions(self) -> List[Position]:

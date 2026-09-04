@@ -253,9 +253,18 @@ async def order(request):
         price = stock.get("最新价", 0)
         if direction == "buy":
             o = broker.buy(code, volume, price)
+            ok = o.status == "filled"
+            return SafeJSONResponse({"success": ok, "order": {"id": o.order_id, "code": o.stock_code, "direction": o.direction, "price": o.filled_price, "volume": o.volume, "status": o.status}})
         else:
+            # ── T+1 闸口：T+0 买入当日不可卖 ──
+            available = broker.sellable_volume(code)
+            if available <= 0:
+                return SafeJSONResponse({"success": False, "error": f"T+1 锁定：{code} 当日买入（T+0），次日才能卖"}, status_code=409)
             o = broker.sell(code, volume, price)
-        return SafeJSONResponse({"success": o.status == "filled", "order": {"id": o.order_id, "code": o.stock_code, "direction": o.direction, "price": o.filled_price, "volume": o.volume, "status": o.status}})
+            if o is None:
+                return SafeJSONResponse({"success": False, "error": f"可卖量不足（{available} 股），已自动截单"}, status_code=409)
+            ok = o.status == "filled"
+            return SafeJSONResponse({"success": ok, "order": {"id": o.order_id, "code": o.stock_code, "direction": o.direction, "price": o.filled_price, "volume": o.volume, "status": o.status}})
     except Exception as e:
         return SafeJSONResponse({"success": False, "error": str(e)}, status_code=500)
 

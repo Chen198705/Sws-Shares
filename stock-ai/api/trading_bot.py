@@ -316,6 +316,9 @@ def check_positions(client, broker):
         stype = _horizon_label(getattr(pos, 'horizon', '中线'))
         if entry <= 0 or cur_p <= 0:
             continue
+        # ── T+1 闸口：T+0 买入当日不可卖，止损/止盈/回撤均静默跳过 ──
+        if broker.sellable_volume(code) <= 0:
+            continue
         pnl_pct = (cur_p - entry) / entry
         sl, tp = get_stop_take(stype, params)
         peak = _trailing_peak.get(code, pnl_pct)
@@ -327,7 +330,7 @@ def check_positions(client, broker):
             reason = f"触发止损（{pnl_pct*100:.1f}%）[{stype}]"
             try:
                 order = broker.sell(code, vol, cur_p)
-                if order.status == "filled":
+                if order is not None and order.status == "filled":
                     pnl = (order.filled_price - entry) * vol
                     tid = log_trade(code, "sell", order.filled_price, vol, pnl, reason, stype)
                     close_attribution_for_code(code, pnl, reason, vol)
@@ -340,7 +343,7 @@ def check_positions(client, broker):
             reason = f"触发止盈（+{pnl_pct*100:.1f}%）[{stype}]"
             try:
                 order = broker.sell(code, vol, cur_p)
-                if order.status == "filled":
+                if order is not None and order.status == "filled":
                     pnl = (order.filled_price - entry) * vol
                     tid = log_trade(code, "sell", order.filled_price, vol, pnl, reason, stype)
                     close_attribution_for_code(code, pnl, reason, vol)
@@ -353,7 +356,7 @@ def check_positions(client, broker):
             reason = f"触发回撤止盈（峰值+{peak*100:.1f}%，现+{pnl_pct*100:.1f}%）[{stype}]"
             try:
                 order = broker.sell(code, vol, cur_p)
-                if order.status == "filled":
+                if order is not None and order.status == "filled":
                     pnl = (order.filled_price - entry) * vol
                     tid = log_trade(code, "sell", order.filled_price, vol, pnl, reason, stype)
                     close_attribution_for_code(code, pnl, reason, vol)
@@ -497,9 +500,12 @@ def execute_decision(decision, broker):
             if pos.stock_code == code:
                 vol = pos.volume
                 avg = pos.avg_cost
+                # ── T+1 闸口：T+0 买入当日不可卖，AI 信号也跳过 ──
+                if broker.sellable_volume(code) <= 0:
+                    return
                 try:
                     order = broker.sell(code, vol, price)
-                    if order.status == "filled":
+                    if order is not None and order.status == "filled":
                         pnl = (order.filled_price - avg) * vol
                         tid = log_trade(code, "sell", order.filled_price, vol, pnl, "AI信号卖出", stype)
                         close_attribution_for_code(code, pnl, "AI信号卖出", vol)
@@ -544,9 +550,12 @@ def enforce_account_circuit_breaker(broker):
         status = get_trading_status()
         closed = 0
         for pos in status.get("positions", []):
+            # ── T+1 闸口：T+0 不可卖，连熔断也不能破 ──
+            if broker.sellable_volume(pos.stock_code) <= 0:
+                continue
             try:
                 order = broker.sell(pos.stock_code, pos.volume, pos.current_price)
-                if order.status == "filled":
+                if order is not None and order.status == "filled":
                     pnl = (order.filled_price - pos.avg_cost) * pos.volume
                     st = _horizon_label(getattr(pos, "horizon", "中线"))
                     tid = log_trade(pos.stock_code, "sell", order.filled_price,
