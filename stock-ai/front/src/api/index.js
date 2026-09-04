@@ -43,3 +43,6 @@ export const getBotModel = () =>
 
 export const setBotModel = (model) =>
   api.post('/bot-model/set', { model }).then(r => r.data);
+
+export const getReconcile = () =>
+  api.get('/reconcile').then(r => r.data);

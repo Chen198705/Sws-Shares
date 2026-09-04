@@ -81,7 +81,8 @@ class OllamaClient:
             r = self.session.post(
                 f"{self.base_url}/v1/chat/completions",
                 json={"model": self.model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
-                timeout=10,
+                timeout=25,
+                # 25s 给 oMLX 冷启动留余量（首次 ~9s），避免健康检查误判离线
             )
             return r.status_code == 200
         except Exception:

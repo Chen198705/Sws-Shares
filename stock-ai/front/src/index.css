@@ -157,3 +157,15 @@
 .pos-agg .pos-agg-stack{display:inline-flex;flex-direction:column;align-items:flex-end;line-height:1.05;letter-spacing:.02em}
 .pos-agg .pos-agg-label{color:var(--text-muted);font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.06em}
 .pos-agg .pos-agg-val{font-family:var(--font-mono);font-size:13px;font-weight:700;letter-spacing:0;margin-top:1px}
+
+/* ── 对账面板 ─────────────────────────────────────── */
+.reconcile-toggle{cursor:pointer;padding:4px 6px;margin:4px -6px !important;border-radius:6px;transition:background .15s}
+.reconcile-toggle:hover{background:#ffffff08}
+.reconcile-panel{border:1px solid var(--border);background:#ffffff05;border-radius:var(--radius-md);padding:10px 12px;margin:6px 0 10px;font-size:12px;animation:.2s ease-out slideDown}
+@keyframes slideDown{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.reconcile-row{justify-content:space-between;align-items:center;padding:3px 0;display:flex}
+.reconcile-row.bold{color:var(--text-primary);font-weight:600}
+.reconcile-row span:first-child{color:var(--text-secondary);font-size:11px}
+.reconcile-row span:last-child{font-family:var(--font-mono);font-size:12px;font-weight:500}
+.reconcile-divider{height:1px;background:var(--border);margin:8px 0}
+.reconcile-status{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:11px;text-align:center;font-weight:600;letter-spacing:.02em}

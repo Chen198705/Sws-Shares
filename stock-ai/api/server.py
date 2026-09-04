@@ -18,6 +18,8 @@ from broker_adapter import get_broker
 from trader import get_trading_status
 from strategy_store import get_strategy_summary
 from config import OLLAMA_BASE_URL, OLLAMA_API_KEY, OLLAMA_MODEL
+from config import EXTRA_LLM_MODELS
+from config import HIDE_LLM_MODELS
 
 
 class SafeJSONResponse(JSONResponse):
@@ -76,10 +78,19 @@ async def models_list(request):
         # Dflash（推测解码架构）/ MTP（多 token 预测变体，如 MTPLX）
         llm_exclude = ["embedding", "bge-", "ocr", "whisper", "asr", "tts", "rerank", "dflash", "mtp"]
         model_list = [m for m in all_models if not any(e in m.lower() for e in llm_exclude)]
+        # 过滤 env 指定的隐藏模型
+        if HIDE_LLM_MODELS:
+            model_list = [m for m in model_list if m not in HIDE_LLM_MODELS]
         # 兜底：当前在用模型始终保留在列表里，避免被规则误判后下拉里看不到它
         current = get_client().model
+        # 合并环境变量注入的额外模型（控制台启用但 /v1/models 未列出的）
+        for m in EXTRA_LLM_MODELS:
+            if m not in model_list:
+                model_list.append(m)
         if current and current in all_models and current not in model_list:
             model_list.insert(0, current)
+        # 按名称排序，保证前端下拉顺序稳定
+        model_list = sorted(model_list)
         return JSONResponse({"models": model_list, "current": current})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -268,6 +279,81 @@ async def order(request):
     except Exception as e:
         return SafeJSONResponse({"success": False, "error": str(e)}, status_code=500)
 
+async def reconcile(request):
+    """
+    账本对账端点：拆解 NAV 与初始资金之间的差额来源。
+    恒等式：NAV + 累计手续费 = 初始资金 + 已实现盈亏 + 浮动盈亏
+    """
+    try:
+        broker = get_broker()
+        all_orders = broker.get_orders(limit=100000)
+        balance = broker.get_balance()
+        positions = broker.get_positions()
+
+        from config import INITIAL_CASH
+        initial_cash = float(INITIAL_CASH)
+
+        def _fp(o):
+            fp = getattr(o, "filled_price", None)
+            return float(fp) if fp else float(o.price)
+
+        buy_filled = [o for o in all_orders if o.direction == "buy" and o.status == "filled"]
+        sell_filled = [o for o in all_orders if o.direction == "sell" and o.status == "filled"]
+
+        buy_turnover = round(sum(_fp(o) * o.volume for o in buy_filled), 2)
+        sell_turnover = round(sum(_fp(o) * o.volume for o in sell_filled), 2)
+
+        buy_commission = round(buy_turnover * BUY_FEE_RATE, 2)
+        sell_commission = round(sell_turnover * BUY_FEE_RATE, 2)
+        stamp_tax = round(sell_turnover * (SELL_FEE_RATE - BUY_FEE_RATE), 2)
+        total_fees = round(buy_commission + sell_commission + stamp_tax, 2)
+
+        realized_pnl = round(sum(float(getattr(o, "pnl", 0) or 0) for o in sell_filled), 2)
+        unrealized_pnl = round(sum(float(getattr(p, "unrealized_pnl", 0) or 0) for p in positions), 2)
+
+        nav = float(balance.get("total_assets", 0))
+        cash = float(balance.get("cash", 0))
+        market_value = float(balance.get("market_value", 0))
+
+        # 恒等式校验：NAV + 手续费 = 初始资金 + 已实现 + 浮动
+        rhs = initial_cash + realized_pnl + unrealized_pnl
+        lhs = nav + total_fees
+        diff = round(lhs - rhs, 4)
+
+        return SafeJSONResponse({
+            "initial_cash": initial_cash,
+            "cash": round(cash, 4),
+            "market_value": round(market_value, 2),
+            "total_assets": round(nav, 2),
+            "realized_pnl": realized_pnl,
+            "unrealized_pnl": unrealized_pnl,
+            "fees": {
+                "buy_commission": buy_commission,
+                "sell_commission": sell_commission,
+                "stamp_tax": stamp_tax,
+                "total": total_fees,
+                "buy_rate": BUY_FEE_RATE,
+                "sell_rate": SELL_FEE_RATE,
+            },
+            "turnover": {
+                "buy": buy_turnover,
+                "sell": sell_turnover,
+            },
+            "orders": {
+                "buy_count": len(buy_filled),
+                "sell_count": len(sell_filled),
+            },
+            "identity": {
+                "expected_with_fees": round(rhs, 2),
+                "actual_with_fees": round(lhs, 2),
+                "diff": diff,
+                "consistent": abs(diff) < 0.05,
+            },
+            "as_of": datetime.now().isoformat(),
+        })
+    except Exception as e:
+        return SafeJSONResponse({"error": str(e)}, status_code=500)
+
 def hot_stocks(request):
     import sqlite3
     db_path = Path(__file__).parent / "logs" / "trading_log.db"
@@ -365,6 +451,7 @@ routes = [
     Route("/api/portfolio", portfolio),
     Route("/api/orders", orders),
     Route("/api/orders/stats", order_stats),
+    Route("/api/reconcile", reconcile),
     Route("/api/order", order, methods=["POST"]),
     Route("/api/hot-stocks", hot_stocks),
     Route("/api/signal", signal, methods=["POST"]),
@@ -395,3 +482,4 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=5168, log_level="warning")
+from simulation_broker import BUY_FEE_RATE, SELL_FEE_RATE

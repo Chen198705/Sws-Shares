@@ -18,6 +18,12 @@ from typing import Optional, Dict, Any
 DB_PATH = Path(__file__).parent / "reports" / "simulation.db"
 DB_PATH.parent.mkdir(exist_ok=True)
 
+# A 股交易费率（仅模拟成本，真实环境按券商实际费率）
+# 买入：佣金 0.03%（无印花税）
+# 卖出：佣金 0.03% + 印花税 0.10% = 0.13%
+BUY_FEE_RATE = 0.0003
+SELL_FEE_RATE = 0.0013
+
 
 def _get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -395,3 +401,5 @@ def _backfill_order_pnl(conn):
 
 
 _migrate()
+        total_cost = exec_price * volume * (1 + BUY_FEE_RATE)
+            net_proceeds = exec_price * volume * (1 - SELL_FEE_RATE)
