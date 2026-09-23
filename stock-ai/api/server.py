@@ -1,8 +1,13 @@
 import sys, os
+import asyncio
+import threading
+import time
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from datetime import datetime, date
 from starlette.applications import Starlette
-from starlette.responses import JSONResponse
+from starlette.datastructures import Headers
+from starlette.responses import JSONResponse, Response
 from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Route, Mount
 from starlette.staticfiles import StaticFiles
@@ -21,6 +26,14 @@ from strategy_store import get_effective_params
 from config import OLLAMA_BASE_URL, OLLAMA_API_KEY, OLLAMA_MODEL
 from config import EXTRA_LLM_MODELS
 from config import HIDE_LLM_MODELS
+
+
+_HEALTH_CACHE_TTL = 5.0
+_MODELS_CACHE_TTL = 15.0
+_health_cache = {"expires": 0.0, "payload": None}
+_health_cache_lock = threading.Lock()
+_models_cache = {"expires": 0.0, "models": None}
+_models_cache_lock = threading.Lock()
 
 
 class SafeJSONResponse(JSONResponse):
@@ -66,32 +79,70 @@ def serialize_positions(positions):
     ]
 
 
+def _health_payload_sync():
+    now = time.time()
+    with _health_cache_lock:
+        if now < _health_cache["expires"] and _health_cache["payload"] is not None:
+            return dict(_health_cache["payload"])
+        client = get_client()
+        payload = {"status": "ok", "ai": client.is_alive(), "model": client.model}
+        _health_cache["payload"] = payload
+        _health_cache["expires"] = time.time() + _HEALTH_CACHE_TTL
+        return dict(payload)
+
+
 async def health(request):
-    return SafeJSONResponse({"status": "ok", "ai": get_client().is_alive(), "model": get_client().model})
+    loop = asyncio.get_running_loop()
+    payload = await loop.run_in_executor(None, _health_payload_sync)
+    return SafeJSONResponse(payload)
+
+
+def _fetch_remote_models(force=False):
+    """拉取 oMLX 模型列表；15 秒 TTL + single-flight，避免首屏并发重复请求。"""
+    now = time.time()
+    with _models_cache_lock:
+        cached = _models_cache["models"]
+        if not force and cached is not None and now < _models_cache["expires"]:
+            return list(cached)
+        try:
+            import requests as _req
+            r = _req.get(
+                OLLAMA_BASE_URL + "/v1/models",
+                headers={"Authorization": "Bearer " + OLLAMA_API_KEY},
+                timeout=10,
+            )
+            r.raise_for_status()
+            models = [m["id"] for m in r.json().get("data", [])]
+            _models_cache["models"] = models
+            _models_cache["expires"] = time.time() + _MODELS_CACHE_TTL
+            return list(models)
+        except Exception:
+            if cached is not None:
+                return list(cached)
+            raise
+
+
+def _build_model_list(all_models):
+    # 非通用 chat LLM：Embedding / OCR / Whisper / ASR / TTS / Rerank /
+    # Dflash（推测解码架构）/ MTP（多 token 预测变体，如 MTPLX）
+    llm_exclude = ["embedding", "bge-", "ocr", "whisper", "asr", "tts", "rerank", "dflash", "mtp"]
+    model_list = [m for m in all_models if not any(e in m.lower() for e in llm_exclude)]
+    if HIDE_LLM_MODELS:
+        model_list = [m for m in model_list if m not in HIDE_LLM_MODELS]
+    current = get_client().model
+    for m in EXTRA_LLM_MODELS:
+        if m not in model_list:
+            model_list.append(m)
+    if current and current in all_models and current not in model_list:
+        model_list.insert(0, current)
+    return sorted(model_list), current
+
 
 async def models_list(request):
     try:
-        import requests as _req
-        r = _req.get(OLLAMA_BASE_URL + "/v1/models", headers={"Authorization": "Bearer " + OLLAMA_API_KEY}, timeout=10)
-        r.raise_for_status()
-        all_models = [m["id"] for m in r.json().get("data", [])]
-        # 非通用 chat LLM：Embedding / OCR / Whisper / ASR / TTS / Rerank /
-        # Dflash（推测解码架构）/ MTP（多 token 预测变体，如 MTPLX）
-        llm_exclude = ["embedding", "bge-", "ocr", "whisper", "asr", "tts", "rerank", "dflash", "mtp"]
-        model_list = [m for m in all_models if not any(e in m.lower() for e in llm_exclude)]
-        # 过滤 env 指定的隐藏模型
-        if HIDE_LLM_MODELS:
-            model_list = [m for m in model_list if m not in HIDE_LLM_MODELS]
-        # 兜底：当前在用模型始终保留在列表里，避免被规则误判后下拉里看不到它
-        current = get_client().model
-        # 合并环境变量注入的额外模型（控制台启用但 /v1/models 未列出的）
-        for m in EXTRA_LLM_MODELS:
-            if m not in model_list:
-                model_list.append(m)
-        if current and current in all_models and current not in model_list:
-            model_list.insert(0, current)
-        # 按名称排序，保证前端下拉顺序稳定
-        model_list = sorted(model_list)
+        loop = asyncio.get_running_loop()
+        all_models = await loop.run_in_executor(None, _fetch_remote_models)
+        model_list, current = _build_model_list(all_models)
         return JSONResponse({"models": model_list, "current": current})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -485,19 +536,63 @@ static_path = Path(__file__).parent.parent / "front" / "dist"
 
 class NoCacheStaticFiles(StaticFiles):
     async def get_response(self, path, scope):
+        is_index = path in ("", ".", "index.html") or path.endswith("/index.html")
+        cache_control = "public, max-age=31536000, immutable" if path.startswith("assets/") else (
+            "no-cache, must-revalidate" if is_index else "public, max-age=300, must-revalidate"
+        )
+        etag = None
+        try:
+            full_path, stat_result = self.lookup_path(path)
+            full_path = Path(full_path)
+            if full_path.is_dir():
+                index_path = full_path / "index.html"
+                if index_path.is_file():
+                    stat_result = index_path.stat()
+            if stat_result is not None:
+                etag = f'"{stat_result.st_mtime_ns:x}-{stat_result.st_size:x}"'
+        except Exception:
+            etag = None
+        if etag and Headers(scope=scope).get("if-none-match") == etag:
+            return Response(status_code=304, headers={"ETag": etag, "Cache-Control": cache_control})
         response = await super().get_response(path, scope)
-        if path.startswith("assets/"):
-            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-        else:
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
+        response.headers["Cache-Control"] = cache_control
+        if etag:
+            response.headers["ETag"] = etag
         return response
 
 static_routes = [Mount("/", app=NoCacheStaticFiles(directory=str(static_path), html=True), name="static")]
 all_routes = routes + static_routes
 
-app = Starlette(routes=all_routes)
+
+def _warmup_ai_sync():
+    """进程启动后预热模型列表与首个可用模型，首屏不再承担冷启动。"""
+    try:
+        _fetch_remote_models(force=True)
+    except Exception as e:
+        print(f"[warmup] 模型列表预热失败: {e}")
+    try:
+        ok = get_client().is_alive()
+        print(f"[warmup] oMLX 可用: {ok}")
+    except Exception as e:
+        print(f"[warmup] oMLX 预热失败: {e}")
+
+
+async def _warmup_ai_async():
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _warmup_ai_sync)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    warmup_task = asyncio.create_task(_warmup_ai_async())
+    yield
+    if not warmup_task.done():
+        warmup_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await warmup_task
+
+
+app = Starlette(routes=all_routes, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 

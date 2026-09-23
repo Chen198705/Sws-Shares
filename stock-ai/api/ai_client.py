@@ -3,6 +3,8 @@ AI 客户端 - oMLX在线时调用本地模型，离线时降级到规则引擎
 """
 import os
 import csv
+import time
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 import requests
@@ -22,6 +24,16 @@ _DEFAULT_FALLBACK_MODELS = (
     "Qwen3.6-27B-Fable-Fusion-711-MTPLX-8bit,"
     "Qwen3.6-35B-A3B-4bit"
 )
+
+# ── 加载性能调优：探测缓存 + 故障熔断 ────────────────────────────
+# is_alive() 探测非常昂贵（每次都打 oMLX）；分析热路径每调用一次会成倍放大。
+# 这里把探测结果缓存到 _PROBE_TTL 秒，避免前端轮询 / 健康检查反复打到 oMLX。
+# 同时对持续 5xx / 连接失败 / 上游错误的模型做短期熔断，
+# 让热门 fallback（如 Qwen3.5-9B-MLX-4bit）成为首选，跳过对已知坏模型的重复探测。
+_PROBE_TTL = 30.0           # is_alive() 结果缓存秒数
+_PROBE_TIMEOUT = 8          # 单模型探测超时（秒），自 15 缩到 8，减少探测链路
+_BAD_MODEL_COOLDOWN = 90.0  # 模型失败后多少秒内跳过（熔断时长）
+_BAD_MODEL_FAILURE_THRESHOLD = 2  # 连续失败次数才熔断，避免单次抖动误杀
 
 
 def _recent_policy_types(days: int = _POLICY_WINDOW_DAYS) -> set:
@@ -81,30 +93,66 @@ class OllamaClient:
         fb_list = [m.strip() for m in env_fb.split(",") if m.strip()]
         # 去重 + 跳过 primary
         self.fallback_models = [m for m in fb_list if m and m != self.primary_model]
+        # ── 探测缓存 / 故障熔断（实例级，跨请求复用） ──
+        self._alive_cache_until = 0.0
+        self._alive_cache_value = False
+        self._bad_models = {}            # model_name -> expires_at (epoch)
+        self._bad_streak = {}            # model_name -> 连续失败计数
+        self._probe_lock = threading.Lock()
+        # 历史成功模型（首选用这个，省一次冷启动）
+        self._last_good_model = None
 
     # ── Fallback chain ─────────────────────────────────────────────
     # 主模型挂掉时自动按 fallback_models 顺序切换；调用方无需感知。
     # 配置：env OLLAMA_FALLBACK_MODELS="m1,m2,m3"，缺省为 [_DEFAULT_FALLBACK_MODELS]
     def _attempts(self):
-        """本次 chat 要尝试的模型链路：primary -> fallback（去重、跳过 primary）"""
+        """本次 chat 要尝试的模型链路：primary -> fallback（去重、跳过熔断中的模型）"""
         seen = []
+        now = time.time()
         for m in [self.primary_model] + list(self.fallback_models):
-            if m and m not in seen:
-                seen.append(m)
+            if not m or m in seen:
+                continue
+            # 跳过熔断中的模型（除非是 primary——主模型被指定后仍要试）
+            bad_until = self._bad_models.get(m, 0)
+            if bad_until > now and m != self.primary_model:
+                continue
+            seen.append(m)
         return seen
 
-    def _probe(self, model_name: str, timeout: int = 15) -> bool:
-        """轻量健康探测（仅用于 is_alive，不更新 self.model）"""
+    def _probe(self, model_name: str, timeout: int = _PROBE_TIMEOUT) -> bool:
+        """轻量健康探测（仅用于 is_alive，不更新 self.model）。
+        已知熔断中的模型直接返回 False，不发起网络请求。"""
+        bad_until = self._bad_models.get(model_name, 0)
+        if bad_until > time.time():
+            return False
         try:
             r = self.session.post(
                 f"{self.base_url}/v1/chat/completions",
                 json={"model": model_name, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
                 timeout=timeout,
             )
-            return r.status_code == 200
+            if r.status_code == 200:
+                self._mark_good(model_name)
+                return True
+            self._mark_bad(model_name)
+            return False
         except Exception:
+            self._mark_bad(model_name)
             return False
 
+    def _mark_bad(self, model_name: str) -> None:
+        """累计失败次数，超过阈值才真正熔断（避免单次抖动误杀）。"""
+        streak = self._bad_streak.get(model_name, 0) + 1
+        self._bad_streak[model_name] = streak
+        if streak >= _BAD_MODEL_FAILURE_THRESHOLD:
+            self._bad_models[model_name] = time.time() + _BAD_MODEL_COOLDOWN
+            print(f"[ai_client] 熔断 {model_name} {int(_BAD_MODEL_COOLDOWN)}s")
+
+    def _mark_good(self, model_name: str) -> None:
+        """成功的模型清零熔断计数，避免冷却累积。"""
+        if model_name in self._bad_streak or model_name in self._bad_models:
+            self._bad_streak.pop(model_name, None)
+            self._bad_models.pop(model_name, None)
     def _call(self, model_name: str, messages, temperature: float, max_tokens: int, timeout: int = 120) -> str:
         """单模型调用：5xx / 连接失败 / 空 choices / upstream error 都抛 RuntimeError"""
         payload = {
@@ -155,11 +203,22 @@ class OllamaClient:
 
 
     def is_alive(self) -> bool:
-        """主模型 + fallback 任一可达即 True（探测不更新 self.model）"""
-        for m in self._attempts():
-            if self._probe(m):
-                return True
-        return False
+        """主模型 + fallback 任一可达即 True。
+        结果按 _PROBE_TTL 秒缓存，避免前端轮询 / 健康检查反复打到 oMLX。
+        探测时不发起对已知熔断中模型的请求。"""
+        with self._probe_lock:
+            now = time.time()
+            if now < self._alive_cache_until:
+                return self._alive_cache_value
+            ok = False
+            for m in self._attempts():
+                # _probe 内部已查熔断表；这里只对未熔断的模型发请求
+                if self._probe(m):
+                    ok = True
+                    break
+            self._alive_cache_value = ok
+            self._alive_cache_until = now + _PROBE_TTL
+            return ok
 
     def chat(self, messages, temperature=0.7, max_tokens=2048) -> str:
         """先主模型；失败按 fallback 链自动切换。成功后将 self.model 提升到可用模型。
@@ -171,19 +230,22 @@ class OllamaClient:
         if not attempts:
             raise RuntimeError("无可用模型：primary_model 与 fallback_models 均为空")
         last_err = None
-        # 找到第一个为 self.model 的起点作为优先（避免每次都从头重试已知的坏模型）
-        try:
-            start = attempts.index(self.model)
-        except ValueError:
-            start = 0
-        ordered = attempts[start:] + attempts[:start]
+        # 优先：上次成功过的模型最先试（避免每次付已知 fallback 的冷启动）
+        if self._last_good_model and self._last_good_model in attempts and self._last_good_model != attempts[0]:
+            primary_idx = attempts.index(self._last_good_model)
+        else:
+            primary_idx = 0
+        ordered = attempts[primary_idx:] + attempts[:primary_idx]
         for m in ordered:
             try:
                 text = self._call(m, messages, temperature, max_tokens)
+                # 成功：清熔断计数 + 更新探活缓存 + 记住好用模型
+                self._mark_good(m)
+                with self._probe_lock:
+                    self._alive_cache_value = True
+                    self._alive_cache_until = time.time() + _PROBE_TTL
+                self._last_good_model = m
                 if m != self.model:
-                    if self.primary_model != m:
-                        # 把成功的 fallback 从链上去重（避免下次又试），避免污染 fallback 链
-                        self.fallback_models = [x for x in self.fallback_models if x != m]
                     self.model = m
                     print(f"[ai_client] primary={self.primary_model} 不可用，已切换至 fallback {m}")
                 return text
@@ -192,7 +254,13 @@ class OllamaClient:
                 msg = str(e)
                 # 4xx 直接透传给调用方，不消耗 fallback
                 if "HTTP 4" in msg:
+                    # 4xx 不熔断（客户端问题，模型本身没问题）
                     raise
+                # 5xx / 连接 / 上游错误 → 累计熔断计数
+                self._mark_bad(m)
+                with self._probe_lock:
+                    self._alive_cache_value = False
+                    self._alive_cache_until = time.time() + _PROBE_TTL
                 print(f"[ai_client] {m} 失败，转下一个: {msg[:120]}")
                 continue
         raise RuntimeError(f"全部模型不可用 ({len(ordered)} 个): last={last_err}")
@@ -288,20 +356,22 @@ def analyze_with_fallback(stock_data: dict, indicators: dict, index_pct: float =
                 return "（技术提示：均线多头排列，趋势完好，中线机会较好）"
         return "（建议按中线持仓1-3个月操作）"
 
-    if client.is_alive():
-        try:
-            horizon_hint = build_horizon_hint(indicators)
-            value_hint = _value_factor_line(str(stock_data.get("代码", "")))
-            messages = [
-                {"role": "system", "content": "【沈万三】你是一个专业的A股量化交易分析师。请对给定的股票数据进行全面技术分析，并按以下格式输出：\n[信号] 买入/持有/卖出/观望（结合量价时空给出明确判断）\n[周期] short/medium/long（根据信号强度和股票特性判断）\n[分析]\n1. 趋势判断：当前价格与均线的位置关系，5/20日均线排列\n2. 动能分析：MACD金叉/死叉、RSI所处区间（超买超卖）\n3. 量价配合：成交量是否放大、量价背离情况\n4. 支撑压力：关键支撑位与压力位\n5. 风险提示：主要风险因素\n[操作建议] 具体入场价位、止损位、目标位（如有）"},
-                {"role": "user", "content": f"股票数据：{stock_data}\n技术指标：{indicators}\n大盘涨跌：{index_pct}%{horizon_hint}\n{value_hint}"}
-            ]
-            text = client.chat(messages)
-            action = _parse_action(text)
-            horizon = _parse_horizon(text)
-            return text, action, True, horizon
-        except Exception as e:
-            pass
-    # 降级到规则引擎
+    # 不再做 client.is_alive() 预探测 — 那次探测会再走一遍 _attempts()，每次分析多 2N round trip。
+    # 改为直接调 chat()：is_alive() 已被 _PROBE_TTL 缓存，chat() 内置 fallback + 熔断；
+    # 整套失败时再做一次轻量回退到规则引擎（带 5s 截断，避免拖垮接口）。
+    try:
+        horizon_hint = build_horizon_hint(indicators)
+        value_hint = _value_factor_line(str(stock_data.get("代码", "")))
+        messages = [
+            {"role": "system", "content": "【沈万三】你是一个专业的A股量化交易分析师。请对给定的股票数据进行全面技术分析，并按以下格式输出：\n[信号] 买入/持有/卖出/观望（结合量价时空给出明确判断）\n[周期] short/medium/long（根据信号强度和股票特性判断）\n[分析]\n1. 趋势判断：当前价格与均线的位置关系，5/20日均线排列\n2. 动能分析：MACD金叉/死叉、RSI所处区间（超买超卖）\n3. 量价配合：成交量是否放大、量价背离情况\n4. 支撑压力：关键支撑位与压力位\n5. 风险提示：主要风险因素\n[操作建议] 具体入场价位、止损位、目标位（如有）"},
+            {"role": "user", "content": f"股票数据：{stock_data}\n技术指标：{indicators}\n大盘涨跌：{index_pct}%{horizon_hint}\n{value_hint}"}
+        ]
+        text = client.chat(messages)
+        action = _parse_action(text)
+        horizon = _parse_horizon(text)
+        return text, action, True, horizon
+    except Exception:
+        # chat 全失败 — 退回到规则引擎，避免上次那种 502 拖死整页的体验
+        pass
     text, action = rule_analyze(stock_data, indicators, index_pct)
     return text, action, False, "medium"

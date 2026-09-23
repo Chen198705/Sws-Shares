@@ -235,11 +235,7 @@ def _run_observation(obs_cnt: int) -> bool:
     params = load_params()
     model = _get_bot_model()
     client = OllamaClient(model=model)
-    _log(f"观察开始：新增平仓 {obs_cnt} 笔，模型 {model}")
-    if not client.is_alive():
-        _log("oMLX 不可用，观察跳过")
-        print("[迭代引擎] oMLX 不可用，观察跳过")
-        return False
+    _log(f"观察开始：新增平仓 {obs_cnt} 笔，主模型 {model}")
     prompt = build_observation_prompt()
     try:
         resp = client.chat([
@@ -262,7 +258,7 @@ def _run_observation(obs_cnt: int) -> bool:
     save_params(params)
     log_observation(params.iteration, len(get_closed_trades_for_review()),
                     resp.strip()[:500], resp[:800])
-    _log(f"观察 #{params.iteration} 完成，last_iterated_sell_id={params.last_iterated_sell_id}")
+    _log(f"观察 #{params.iteration} 完成，实际模型 {client.model}，last_iterated_sell_id={params.last_iterated_sell_id}")
     print(f"[{datetime.now().isoformat()}] 观察 #{params.iteration} 完成（只观察，未调参）")
     print(f"  观察纪要: {resp.strip()[:150]}")
     return True
@@ -272,11 +268,7 @@ def _run_review(rev_cnt: int) -> bool:
     params = load_params()
     model = _get_bot_model()
     client = OllamaClient(model=model)
-    _log(f"复核开始：累计待复核平仓 {rev_cnt} 笔，模型 {model}")
-    if not client.is_alive():
-        _log("oMLX 不可用，复核跳过")
-        print("[迭代引擎] oMLX 不可用，复核跳过")
-        return False
+    _log(f"复核开始：累计待复核平仓 {rev_cnt} 笔，主模型 {model}")
 
     print(f"[{datetime.now().isoformat()}] 复核开始...")
     prompt = build_review_prompt(get_recent_observations())
@@ -307,7 +299,7 @@ def _run_review(rev_cnt: int) -> bool:
 
     log_iteration(params.iteration, len(get_closed_trades_for_review()),
                   summary, str(applied), resp[:500], stage="review")
-    _log(f"复核 #{params.iteration} 完成，last_reviewed_sell_id={params.last_reviewed_sell_id}，实际参数变化 {applied}")
+    _log(f"复核 #{params.iteration} 完成，实际模型 {client.model}，last_reviewed_sell_id={params.last_reviewed_sell_id}，实际参数变化 {applied}")
     print(f"[{datetime.now().isoformat()}] 复核 #{params.iteration} 完成")
     if applied:
         print(f"  实际调参（已限幅）: {applied}")
