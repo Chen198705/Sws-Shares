@@ -108,7 +108,7 @@
 - horizon_weights：short=0.5、medium=0.3、long=0.2（信号层另有按 regime 轮转分配）。
 - 止损止盈：短线 -3%/+8%、中线 -5%/+15%、长线 -10%/+25%；
   回撤止盈：短线 +5% 启动/3% 落袋，中线 +6% 启动/3% 落袋，长线不启用。
-- 模型：API 端 `OLLAMA_MODEL`（当前 Qwen3.5-9B-MLX-4bit）；
+- 模型：API 端 `OMLX_MODEL`（当前 Qwen3.5-9B-MLX-4bit）；
   机器人端 `stock-ai/api/bot_config.json`（当前 Qwen3.6-35B-A3B-4bit）。
   Dashboard 切换模型只影响前端问答，不同步机器人模型。
 

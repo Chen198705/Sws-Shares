@@ -40,7 +40,7 @@
 ```bash
 # 1. 复制并编辑环境变量
 cp .env.example .env
-# 编辑 .env，填入 OLLAMA_BASE_URL 和 OLLAMA_API_KEY
+# 编辑 .env，填入 OMLX_BASE_URL 和 OMLX_API_KEY
 
 # 2. 启动（首次自动构建镜像）
 docker compose up -d
@@ -113,7 +113,7 @@ PYTHONPATH=stock-ai/api/.venv/lib/python3.9/site-packages:$PWD \
 
 ## 模型切换
 
-API 端默认模型通过 `.env` 的 `OLLAMA_MODEL` 控制；
+API 端默认模型通过 `.env` 的 `OMLX_MODEL` 控制；
 前端 Dashboard 支持运行时动态切换（不影响 Trading Bot 行为）。
 
 ## 注意事项

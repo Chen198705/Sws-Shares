@@ -9,7 +9,7 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 import requests
-from config import OLLAMA_BASE_URL, OLLAMA_API_KEY, OLLAMA_MODEL
+from config import OMLX_BASE_URL, OMLX_API_KEY, OMLX_MODEL
 from rule_engine import analyze as rule_analyze
 from research_snapshot import value_bp_metric
 from strategy_store import get_research_overlay
@@ -19,7 +19,7 @@ _POLICY_WINDOW_DAYS = 5
 
 # 主模型不可用时的 fallback 链（按顺序尝试）。
 # 优先选择：与主模型同系列但更小（响应快）→ 不同家族的中等模型。
-# 实际生效顺序：env OLLAMA_FALLBACK_MODELS 优先（逗号分隔），否则用此默认值。
+# 实际生效顺序：env OMLX_FALLBACK_MODELS 优先（逗号分隔），否则用此默认值。
 _DEFAULT_FALLBACK_MODELS = (
     "Qwen3.5-9B-MLX-4bit,"
     "Qwen3.6-35B-A3B-8bit"
@@ -135,15 +135,24 @@ def _policy_overlay_text() -> str:
         return ""
 
 
-class OllamaClient:
+class OMLXClient:
+    """oMLX 客户端（Mac Studio 自建推理服务）。
+
+    类名历史上叫 OllamaClient，容易和 Ollama 混淆；规范化后的名字是
+    OMLXClient，旧名保留为别名，老 import 不会断。
+    """
+
     def __init__(self, base_url=None, api_key=None, model=None):
-        self.base_url = (base_url or OLLAMA_BASE_URL).rstrip("/")
-        self.api_key = api_key or OLLAMA_API_KEY
-        self.model = model or OLLAMA_MODEL
+        self.base_url = (base_url or OMLX_BASE_URL).rstrip("/")
+        self.api_key = api_key or OMLX_API_KEY
+        self.model = model or OMLX_MODEL
         self.session = requests.Session()
         self.session.headers.update({"Authorization": f"Bearer {self.api_key}"})
         # 初始化 fallback 链（primary_model 锁定为构造时的 model）
-        env_fb = os.getenv("OLLAMA_FALLBACK_MODELS", _DEFAULT_FALLBACK_MODELS)
+        env_fb = os.getenv(
+            "OMLX_FALLBACK_MODELS",
+            os.getenv("OLLAMA_FALLBACK_MODELS", _DEFAULT_FALLBACK_MODELS),
+        )
         self.primary_model = self.model
         fb_list = [m.strip() for m in env_fb.split(",") if m.strip()]
         # 去重 + 跳过 primary
@@ -161,7 +170,7 @@ class OllamaClient:
 
     # ── Fallback chain ─────────────────────────────────────────────
     # 主模型挂掉时自动按 fallback_models 顺序切换；调用方无需感知。
-    # 配置：env OLLAMA_FALLBACK_MODELS="m1,m2,m3"，缺省为 [_DEFAULT_FALLBACK_MODELS]
+    # 配置：env OMLX_FALLBACK_MODELS="m1,m2,m3"，缺省为 [_DEFAULT_FALLBACK_MODELS]
     def _attempts(self):
         """本次 chat 要尝试的模型链路：primary -> fallback（去重、跳过熔断中的模型）"""
         seen = []
@@ -412,12 +421,15 @@ def _parse_horizon(text: str) -> str:
 
 
 # 全局 AI 客户端实例（支持模型切换）
+# 历史别名：老代码 / 老测试 import OllamaClient 仍然可用
+OllamaClient = OMLXClient
+
 _client = None
 
-def get_client() -> OllamaClient:
+def get_client() -> OMLXClient:
     global _client
     if _client is None:
-        _client = OllamaClient()
+        _client = OMLXClient()
     return _client
 
 

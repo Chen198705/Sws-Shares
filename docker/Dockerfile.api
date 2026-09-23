@@ -40,9 +40,9 @@ RUN rm -f api/app.py api/main.py api/scheduler.py
 # 嵌入前端构建产物
 COPY --from=frontend-builder /build/dist ./front/dist
 
-ENV OLLAMA_BASE_URL=http://127.0.0.1:8000 \
-    OLLAMA_API_KEY=sk-placeholder \
-    OLLAMA_MODEL=Qwen3.5-9B-MLX-4bit \
+ENV OMLX_BASE_URL=http://127.0.0.1:8000 \
+    OMLX_API_KEY=sk-placeholder \
+    OMLX_MODEL=Qwen3.5-9B-MLX-4bit \
     SERVER_PORT=5168
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \

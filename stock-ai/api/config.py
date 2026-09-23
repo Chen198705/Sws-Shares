@@ -3,9 +3,43 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:8000")
-OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "sk-placeholder")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "Qwen3.6-35B-A3B-4bit")
+
+def _env_first(*names, default="", env=None):
+    """按优先级取第一个非空环境变量。
+
+    服务商是 oMLX（跑在 Mac Studio 上），不是 Ollama。历史代码沿用了
+    OLLAMA_* 这套名字，这里统一到 OMLX_*：
+      1. OMLX_*        —— 规范名，新配置一律用这套
+      2. OMLX_META_*   —— oMLX-Meta（平台聚合层）写法，同样认
+      3. OLLAMA_*      —— 仅作历史兼容，不要再新增
+
+    env 仅用于测试注入；默认读 os.environ。
+    """
+    source = os.environ if env is None else env
+    for name in names:
+        value = source.get(name)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return default
+
+
+OMLX_BASE_URL = _env_first(
+    "OMLX_BASE_URL", "OMLX_META_BASE_URL", "OLLAMA_BASE_URL",
+    default="http://127.0.0.1:8000",
+)
+OMLX_API_KEY = _env_first(
+    "OMLX_API_KEY", "OMLX_META_API_KEY", "OLLAMA_API_KEY",
+    default="sk-placeholder",
+)
+OMLX_MODEL = _env_first(
+    "OMLX_MODEL", "OMLX_META_MODEL", "OLLAMA_MODEL",
+    default="Qwen3.6-35B-A3B-4bit",
+)
+
+# 历史别名：老脚本 / 老文档 import 这三个名字时仍然可用
+OLLAMA_BASE_URL = OMLX_BASE_URL
+OLLAMA_API_KEY = OMLX_API_KEY
+OLLAMA_MODEL = OMLX_MODEL
 
 # /v1/models 未列出但 oMLX 控制台已启用的模型（逗号分隔）。
 # 解决 oMLX 控制台 UI 与 /v1/models API 状态不一致的问题。

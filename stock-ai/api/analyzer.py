@@ -2,7 +2,7 @@
 AI 驱动的市场分析器
 """
 import json
-from ai_client import OllamaClient, _policy_overlay_text
+from ai_client import OMLXClient, _policy_overlay_text
 from market_data import (
     get_all_indices,
     get_stock_realtime,
@@ -83,7 +83,7 @@ def _value_factor_line(code: str) -> str:
 
 def analyze_market() -> dict:
     """大盘综合分析"""
-    client = OllamaClient()
+    client = OMLXClient()
     indices = get_all_indices()
     concepts = get_hot_concepts()
     market_str = _format_indices(indices)
@@ -120,7 +120,7 @@ def analyze_market() -> dict:
 
 def analyze_stock(stock_code: str) -> dict:
     """个股分析"""
-    client = OllamaClient()
+    client = OMLXClient()
     stock = get_stock_realtime(stock_code)
     if "错误" in stock:
         return {"status": "error", "message": stock["错误"]}

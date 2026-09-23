@@ -40,9 +40,9 @@ python scheduler.py --cron      # JSON输出（供n8n调用）
 
 编辑 `.env` 文件：
 ```
-OLLAMA_BASE_URL=http://127.0.0.1:8000
-OLLAMA_API_KEY=sk-placeholder
-OLLAMA_MODEL=qwen2.5:14b
+OMLX_BASE_URL=http://127.0.0.1:8000
+OMLX_API_KEY=sk-placeholder
+OMLX_MODEL=qwen2.5:14b
 ENABLE_AUTO_TRADE=false   # 开启前务必确认策略已验证
 TRADING_PLAN=moderate
 ```

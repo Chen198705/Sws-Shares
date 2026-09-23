@@ -6,7 +6,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import ai_client
-from ai_client import OllamaClient, _RETRY_ON_TRANSIENT
+from ai_client import OMLXClient, _RETRY_ON_TRANSIENT
 
 
 def _no_backoff():
@@ -33,7 +33,7 @@ def test_successful_fallback_persists_across_calls():
 
 
 def _run_successful_fallback_persists_across_calls():
-    client = OllamaClient(base_url="http://example.invalid", api_key="test", model="primary")
+    client = OMLXClient(base_url="http://example.invalid", api_key="test", model="primary")
     client.fallback_models = ["fallback"]
     calls = []
 
@@ -55,7 +55,7 @@ def _run_successful_fallback_persists_across_calls():
 
 
 def test_transient_error_retries_same_model_before_fallback():
-    client = OllamaClient(base_url="http://example.invalid", api_key="test", model="primary")
+    client = OMLXClient(base_url="http://example.invalid", api_key="test", model="primary")
     client.fallback_models = ["fallback"]
     calls = []
 
@@ -81,7 +81,7 @@ def test_cold_load_failures_do_not_trip_long_circuit_breaker():
 
 
 def _run_cold_load_failures_do_not_trip_long_circuit_breaker():
-    client = OllamaClient(base_url="http://example.invalid", api_key="test", model="primary")
+    client = OMLXClient(base_url="http://example.invalid", api_key="test", model="primary")
     client.fallback_models = ["fallback"]
 
     def fake_call(model_name, messages, temperature, max_tokens, timeout=120):
@@ -107,7 +107,7 @@ def test_hard_failure_still_trips_circuit_breaker():
 
 
 def _run_hard_failure_still_trips_circuit_breaker():
-    client = OllamaClient(base_url="http://example.invalid", api_key="test", model="primary")
+    client = OMLXClient(base_url="http://example.invalid", api_key="test", model="primary")
     client.fallback_models = ["fallback"]
 
     def fake_call(model_name, messages, temperature, max_tokens, timeout=120):
@@ -123,7 +123,7 @@ def _run_hard_failure_still_trips_circuit_breaker():
 
 
 def test_disabled_model_falls_back_to_next_model():
-    client = OllamaClient(base_url="http://example.invalid", api_key="test", model="primary")
+    client = OMLXClient(base_url="http://example.invalid", api_key="test", model="primary")
     client.fallback_models = ["fallback"]
     calls = []
 

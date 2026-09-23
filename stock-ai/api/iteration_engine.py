@@ -4,7 +4,7 @@ from pathlib import Path
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent))
-from ai_client import OllamaClient
+from ai_client import OMLXClient
 from strategy_store import (
     init_schema, load_params, save_params,
     get_closed_trades_for_review, get_strategy_summary, log_iteration,
@@ -234,7 +234,7 @@ def _apply_damped(delta: dict, params) -> dict:
 def _run_observation(obs_cnt: int) -> bool:
     params = load_params()
     model = _get_bot_model()
-    client = OllamaClient(model=model)
+    client = OMLXClient(model=model)
     _log(f"观察开始：新增平仓 {obs_cnt} 笔，主模型 {model}")
     prompt = build_observation_prompt()
     try:
@@ -267,7 +267,7 @@ def _run_observation(obs_cnt: int) -> bool:
 def _run_review(rev_cnt: int) -> bool:
     params = load_params()
     model = _get_bot_model()
-    client = OllamaClient(model=model)
+    client = OMLXClient(model=model)
     _log(f"复核开始：累计待复核平仓 {rev_cnt} 笔，主模型 {model}")
 
     print(f"[{datetime.now().isoformat()}] 复核开始...")

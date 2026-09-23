@@ -18,13 +18,13 @@ import uvicorn, json
 sys.path.insert(0, str(Path(__file__).parent))
 
 from market_data import get_all_indices, get_stock_realtime, get_stock_history, calc_indicators
-from ai_client import OllamaClient, analyze_with_fallback, get_client
+from ai_client import OMLXClient, analyze_with_fallback, get_client
 from rule_engine import analyze as rule_analyze
 from broker_adapter import get_broker
 from trader import get_trading_status
 from strategy_store import get_strategy_summary
 from strategy_store import get_effective_params
-from config import OLLAMA_BASE_URL, OLLAMA_API_KEY, OLLAMA_MODEL
+from config import OMLX_BASE_URL, OMLX_API_KEY, OMLX_MODEL
 from config import EXTRA_LLM_MODELS
 from config import HIDE_LLM_MODELS
 import market_calendar
@@ -130,8 +130,8 @@ async def health(request):
 def _fetch_remote_models_sync():
     import requests as _req
     r = _req.get(
-        OLLAMA_BASE_URL + "/v1/models",
-        headers={"Authorization": "Bearer " + OLLAMA_API_KEY},
+        OMLX_BASE_URL + "/v1/models",
+        headers={"Authorization": "Bearer " + OMLX_API_KEY},
         timeout=_MODELS_FETCH_TIMEOUT,
     )
     r.raise_for_status()
@@ -639,7 +639,7 @@ def get_bot_config():
                 return data
     except Exception:
         pass
-    return {"model": OLLAMA_MODEL}
+    return {"model": OMLX_MODEL}
 
 def save_bot_config(cfg):
     """原子写：先落临时文件再 replace，避免机器人进程读到半截 JSON。"""

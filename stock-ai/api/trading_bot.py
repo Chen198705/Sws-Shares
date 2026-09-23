@@ -13,7 +13,7 @@ from market_data import (
     calc_indicators, get_turnover_rate, build_entry_indicators,
     calc_volatility_profile,
 )
-from ai_client import OllamaClient, _policy_overlay_text
+from ai_client import OMLXClient, _policy_overlay_text
 from broker_adapter import get_broker
 from trader import get_trading_status
 import stock_report
@@ -1012,7 +1012,7 @@ def startup_warmup(client, broker):
 
 def main_loop(stop_event):
     current_config_model = _get_bot_model()
-    client = OllamaClient(model=current_config_model)
+    client = OMLXClient(model=current_config_model)
     broker = get_broker()
     while not stop_event.is_set():
         if startup_warmup(client, broker):

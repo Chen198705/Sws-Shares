@@ -40,7 +40,7 @@ class FakeSession:
 
 
 def test_model_probe_uses_lightweight_models_endpoint():
-    client = ai_client.OllamaClient(
+    client = ai_client.OMLXClient(
         base_url="http://example.invalid",
         api_key="test",
         model="primary",

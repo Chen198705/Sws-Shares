@@ -7,11 +7,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from market_data import get_all_indices, get_stock_realtime, get_stock_history, calc_indicators
-from ai_client import OllamaClient
+from ai_client import OMLXClient
 from rule_engine import analyze as rule_analyze
 from broker_adapter import get_broker
 from trader import get_trading_status
-from config import OLLAMA_BASE_URL, OLLAMA_MODEL
+from config import OMLX_BASE_URL, OMLX_MODEL
 
 st.set_page_config(page_title="A股 AI 交易", page_icon="", layout="wide", initial_sidebar_state="expanded")
 
@@ -24,10 +24,10 @@ if "trade_msg" not in st.session_state:
 # ─── 侧边栏 ──────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### A股 AI 交易系统")
-    client = OllamaClient()
+    client = OMLXClient()
     ai_ok = client.is_alive()
-    st.markdown(f"**AI:** {'✅ 在线' if ai_ok else '⚠️ 离线'}  `{OLLAMA_MODEL}`")
-    st.markdown(f"**地址:** `{OLLAMA_BASE_URL}`")
+    st.markdown(f"**AI:** {'✅ 在线' if ai_ok else '⚠️ 离线'}  `{OMLX_MODEL}`")
+    st.markdown(f"**地址:** `{OMLX_BASE_URL}`")
     st.divider()
 
     code_input = st.text_input("股票代码", value="600519", placeholder="6位代码，如 600519").strip()

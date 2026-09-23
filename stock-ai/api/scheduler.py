@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from market_data import get_all_indices, get_stock_realtime, get_stock_history, calc_indicators
-from ai_client import OllamaClient
+from ai_client import OMLXClient
 from config import REPORT_DIR, TRADING_PLAN
 
 
@@ -87,7 +87,7 @@ def parse_signal(analysis_text: str, plan: str) -> dict:
     return {"action": action, "confidence": confidence, "position_ratio": position}
 
 
-def run_analysis(ai_client: OllamaClient):
+def run_analysis(ai_client: OMLXClient):
     """执行一次完整分析"""
     results = {}
 
@@ -152,7 +152,7 @@ def main():
     parser.add_argument("--interval", type=int, default=3600, help="守护进程轮询间隔（秒）")
     args = parser.parse_args()
 
-    ai_client = OllamaClient()
+    ai_client = OMLXClient()
 
     if args.cron:
         results = run_analysis(ai_client)

@@ -16,7 +16,7 @@ from datetime import datetime
 
 from config import REPORT_DIR, ENABLE_AUTO_TRADE
 from analyzer import analyze_market, analyze_stock
-from ai_client import OllamaClient
+from ai_client import OMLXClient
 from market_data import get_all_indices
 from trader import generate_trade_signal, execute_trade, get_trading_status
 
@@ -143,7 +143,7 @@ def cmd_portfolio():
 
 
 def cmd_check_ai():
-    client = OllamaClient()
+    client = OMLXClient()
     alive = client.is_alive()
     if alive:
         print("AI 服务状态: 在线")
