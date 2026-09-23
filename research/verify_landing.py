@@ -7,6 +7,7 @@
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -30,8 +31,9 @@ def main() -> None:
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
 
     # ASSERT[decision=PENDING, status=after]
-    # 契约版本由 research 层 build_strategy_params.py 生成，2026-08-17.1 = D-006 更新后版本
-    check(contract.get("version", "").startswith("2026-08"), "契约版本", contract.get("version"))
+    # 契约版本由 research 层 build_strategy_params.py 每日生成（YYYY-MM-DD.N），不写死月份
+    check(bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}\.\d+", contract.get("version", "") or "")),
+          "契约版本", contract.get("version"))
     # ASSERT[decision=PENDING, status=after]
     # regime 由 research 层每日刷新，不依赖单次决策
     check(contract.get("regime", {}).get("state", ""), "regime 已写入")

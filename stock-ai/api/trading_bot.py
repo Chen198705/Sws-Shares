@@ -467,10 +467,72 @@ def _trailing_hit(stype: str, params, peak: float, pnl_pct: float) -> bool:
     return False
 
 
+REBALANCE_TOLERANCE = 1.02  # 轻微超限不反复微调，避免无谓交易成本
+
+
+def rebalance_oversized_positions(broker, params, skip_codes=None, status=None):
+    """存量仓位再平衡：只减不增，把超过单票上限的历史仓位削回上限。
+
+    背景：单票上限是 2026-08-16 之后才进执行层的，此前的存量仓位
+    （如 600138 曾占总资产 ~28%）不会被新开仓检查拦截，需要单独的再平衡通道。
+
+    约束：
+    - 只减仓、不加仓；卖出量按 100 股整数倍向下取整
+    - 单票上限 = min(max_position_size, 波动率自适应仓位上限)
+    - 遵守 T+1：卖出量不超过 broker.sellable_volume()
+    - 削减不足 100 股或超限幅度在 REBALANCE_TOLERANCE 内则跳过
+    """
+    skip_codes = set(skip_codes or ())
+    status = status or get_trading_status()
+    total = float((status.get("balance") or {}).get("total_assets") or 0)
+    if total <= 0:
+        return False
+    acted = False
+    for pos in status.get("positions", []):
+        code = pos.stock_code
+        if code in skip_codes:
+            continue
+        vol = int(pos.volume or 0)
+        cur_p = float(pos.current_price or 0)
+        entry = float(pos.avg_cost or 0)
+        if vol <= 0 or cur_p <= 0:
+            continue
+        atr_pct = (calc_volatility_profile(get_stock_history(code, days=30)) or {}).get("atr_pct") or 0.0
+        cap_pct = min(params.max_position_size, get_volatility_position_size(params, atr_pct))
+        cap_value = total * cap_pct
+        cur_value = vol * cur_p
+        if cur_value <= cap_value * REBALANCE_TOLERANCE:
+            continue
+        sellable = int(broker.sellable_volume(code) or 0)
+        if sellable <= 0:
+            print(f"  [{code}] 再平衡跳过：T+1 闸口，今日买入当日不可卖")
+            continue
+        target_vol = int(cap_value / cur_p / 100) * 100
+        sell_vol = min(vol - target_vol, sellable)
+        sell_vol = int(sell_vol // 100) * 100
+        if sell_vol < 100:
+            continue
+        stype = _horizon_label(getattr(pos, "horizon", "中线"))
+        reason = (f"存量仓位再平衡：单票占比 {cur_value / total * 100:.1f}% "
+                  f"超上限 {cap_pct * 100:.1f}%，减仓 {sell_vol} 股")
+        try:
+            order = broker.sell(code, sell_vol, cur_p)
+            if order is not None and order.status == "filled":
+                pnl = (order.filled_price - entry) * sell_vol
+                log_trade(code, "sell", order.filled_price, sell_vol, pnl, reason, stype)
+                close_attribution_for_code(code, pnl, reason, sell_vol)
+                print(f"  [{code}] {reason}，盈亏 ¥{pnl:+.2f}")
+                acted = True
+        except Exception as e:
+            print(f"  [{code}] 再平衡卖出失败: {e}")
+    return acted
+
+
 def check_positions(client, broker):
     params = get_effective_params()
     status = get_trading_status()
     action_taken = False
+    sold_codes = set()  # 本轮已减/已平的代码，避免同一轮被再平衡重复处理
     for pos in status.get("positions", []):
         code = pos.stock_code
         entry = pos.avg_cost or 0
@@ -517,6 +579,7 @@ def check_positions(client, broker):
                     _ai_sell_streak.pop(code, None)
                     _drop_ai_sell_streak(code)
                     action_taken = True
+                    sold_codes.add(code)
                     return True
             except Exception as e:
                 print(f"  [{code}] 卖出失败: {e}")
@@ -562,6 +625,12 @@ def check_positions(client, broker):
                     print(f"  [{code}] 持仓[{stype}] 成本¥{entry:.2f} 现价¥{cur_p:.2f} {pnl_pct*100:+.1f}% vol红线 {sl*100:.1f}%/{tp*100:.1f}% AI: {decision}{tail}")
             else:
                 print(f"  [{code}] 持仓[{stype}] 成本¥{entry:.2f} 现价¥{cur_p:.2f} {pnl_pct*100:+.1f}% vol红线 {sl*100:.1f}%/{tp*100:.1f}%")
+    # ── 止损/止盈/回撤处置完成后，再处理存量的超限仓位（只减不增） ──
+    try:
+        if rebalance_oversized_positions(broker, params, skip_codes=sold_codes):
+            action_taken = True
+    except Exception as e:
+        print(f"  [再平衡] 执行失败: {e}")
     if action_taken:
         trigger_iteration()
 
@@ -572,6 +641,59 @@ def sr(x):
         return f"{x:.1f}"
     except Exception:
         return str(x)
+
+
+# ── 入场硬校验：提示词里的买入条件必须由代码复核，防止模型"声称满足"实际不满足 ──
+# 与 analyze_and_decide 提示词中的"买入条件"保持一一对应：
+#   短线：RSI<40 且 (KDJ金叉 或 放量上涨 量比>1.5)
+#   中线：RSI<55 且 均线多头 且 MACD 多头动能（金叉或 MACD 状态已转多头）
+#   长线：RSI<65 且 均线多头 且 换手率>1%
+ENTRY_RULES = {
+    "短线": "RSI<40 且 (KDJ金叉 或 量比>1.5)",
+    "中线": "RSI<55 且 均线多头 且 MACD金叉/多头",
+    "长线": "RSI<65 且 均线多头 且 换手率>1%",
+}
+
+
+def validate_entry_conditions(stype, ind, turnover=None):
+    """代码侧入场闸口，返回 (ok, reasons)。指标缺失一律视为不满足（保守拒绝）。"""
+    if not ind:
+        return False, ["技术指标缺失"]
+    try:
+        rsi = float(ind.get("RSI(14)"))
+    except (TypeError, ValueError):
+        return False, ["RSI 缺失或非法"]
+
+    fail = []
+    if stype == "短线":
+        if not rsi < 40:
+            fail.append(f"RSI {rsi:.1f} 未低于 40")
+        try:
+            vol_ratio = float(ind.get("量比") or 0)
+        except (TypeError, ValueError):
+            vol_ratio = 0.0
+        if ind.get("KDJ金叉") != "是" and vol_ratio <= 1.5:
+            fail.append(f"KDJ未金叉且量比 {vol_ratio:.2f} 未超 1.5")
+    elif stype == "长线":
+        if not rsi < 65:
+            fail.append(f"RSI {rsi:.1f} 未低于 65")
+        if ind.get("均线多头") != "是":
+            fail.append("均线非多头排列")
+        try:
+            tv = float(turnover if turnover is not None else ind.get("换手率") or 0)
+        except (TypeError, ValueError):
+            tv = 0.0
+        if not tv > 1.0:
+            fail.append(f"换手率 {tv:.2f}% 未超 1%")
+    else:  # 中线为默认口径
+        if not rsi < 55:
+            fail.append(f"RSI {rsi:.1f} 未低于 55")
+        if ind.get("均线多头") != "是":
+            fail.append("均线非多头排列")
+        if ind.get("MACD金叉") != "是" and ind.get("MACD状态") != "多头":
+            fail.append("MACD 既未金叉也非多头")
+    return (not fail), fail
+
 
 def analyze_and_decide(client, broker, code):
     try:
@@ -629,8 +751,9 @@ K={ind['K']:.1f} D={ind['D']:.1f} J={ind['J']:.1f} KDJ金叉={ind['KDJ金叉']} 
 
 买入条件：
 - 短线：RSI<40 且 (KDJ金叉 或 放量上涨 量比>1.5)
-- 中线：RSI<55 且 (均线多头 且 MACD金叉)
+- 中线：RSI<55 且 均线多头 且 (MACD金叉 或 MACD状态多头)
 - 长线：RSI<65 且 均线多头 且 换手率>1%
+以上买入条件会由系统代码二次硬校验，条件不满足时买入会被直接拒绝，请不要给出不满足条件的买入建议。
 卖出条件：RSI>70 或 均线死叉 或 KDJ高位死叉"""
             analysis = client.chat([
                 {"role": "system", "content": "你是一个严格的A股量化交易员，禁止废话。"},
@@ -655,11 +778,20 @@ K={ind['K']:.1f} D={ind['D']:.1f} J={ind['J']:.1f} KDJ金叉={ind['KDJ金叉']} 
 
         ei = build_entry_indicators(stock, ind, turnover)
 
+        # ── 入场硬校验：代码复核买入条件，模型"声称满足"不作数 ──
+        entry_ok, entry_reasons = validate_entry_conditions(stype, ind, turnover)
+        if action == "buy" and not entry_ok:
+            print(f"  [{code}] 入场条件不满足({ENTRY_RULES.get(stype, stype)})：{'；'.join(entry_reasons)} → 降级观望")
+            log_scan(code, "hold", 0, stock["最新价"],
+                     f"硬校验拒绝买入：{'；'.join(entry_reasons)} | {analysis[:200]}", stype, 0)
+
         return {
             "action": action, "position_ratio": pos_pct,
             "price": stock["最新价"], "analysis": analysis,
             "market_context": mkt, "entry_indicators": ei,
             "strategy_type": stype, "horizon": {"短线": "short", "中线": "medium", "长线": "long"}[stype],
+            "entry_ok": entry_ok, "entry_reasons": entry_reasons,
+            "indicators": ind, "turnover": turnover,
         }
     except Exception as e:
         print(f"  [{code}] 分析失败: {e}")
@@ -677,6 +809,14 @@ def execute_decision(decision, broker):
     total  = bal["total_assets"]
 
     if action == "buy":
+        # ── 入场硬校验（执行前最后一道闸）：模型建议买入 ≠ 允许买入 ──
+        entry_ok, entry_reasons = validate_entry_conditions(
+            stype, decision.get("indicators"), decision.get("turnover"))
+        if not entry_ok:
+            print(f"  [{code}] 入场硬校验未通过，拒买：{'；'.join(entry_reasons)}")
+            log_scan(code, "hold", 0, price,
+                     f"硬校验拒买：{'；'.join(entry_reasons)}", stype, 0)
+            return
         max_new = total * params.max_total_position - bal["market_value"]
         if max_new <= 0:
             print(f"  [{code}] 总仓位已达上限")

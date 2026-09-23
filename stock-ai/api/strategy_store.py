@@ -365,15 +365,17 @@ def should_iterate() -> tuple[int, int, bool, bool]:
     """返回 (观察待处理笔数, 复核待处理笔数, 观察是否达阈值, 复核是否达阈值)。"""
     p = load_params()
     c = _conn()
+    # 风控类减仓（存量仓位再平衡）不是策略信号样本，排除出迭代统计以免污染胜率/盈亏归因
+    sample_filter = ("AND (reason IS NULL OR reason NOT LIKE '存量仓位再平衡%')")
     try:
         obs_base = p.last_iterated_sell_id
         obs_row = c.execute(
-            "SELECT COUNT(*) FROM trades WHERE direction='sell' AND id > ?",
+            f"SELECT COUNT(*) FROM trades WHERE direction='sell' AND id > ? {sample_filter}",
             (obs_base,)).fetchone()
         obs_cnt = int(obs_row[0] or 0)
         rev_base = p.last_reviewed_sell_id
         rev_row = c.execute(
-            "SELECT COUNT(*) FROM trades WHERE direction='sell' AND id > ?",
+            f"SELECT COUNT(*) FROM trades WHERE direction='sell' AND id > ? {sample_filter}",
             (rev_base,)).fetchone()
         rev_cnt = int(rev_row[0] or 0)
     except Exception:
