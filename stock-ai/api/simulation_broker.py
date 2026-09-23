@@ -157,7 +157,7 @@ class SimulationBroker(BrokerAdapter):
         stock = get_stock_realtime(stock_code)
         stock_name = stock.get("股票名", stock_code)
         exec_price = price if price else stock.get("最新价", 0.0)
-        total_cost = exec_price * volume * 1.0003
+        total_cost = exec_price * volume * (1 + BUY_FEE_RATE)
 
         order = Order(
             order_id=str(uuid.uuid4())[:8].upper(),
@@ -244,7 +244,7 @@ class SimulationBroker(BrokerAdapter):
             self._conn.execute("BEGIN IMMEDIATE")
             self._save_order(order)
             self._update_position_sell(stock_code, volume, exec_price)
-            net_proceeds = exec_price * volume * (1 - 0.0013)
+            net_proceeds = exec_price * volume * (1 - SELL_FEE_RATE)
             self._add_cash(net_proceeds)
             self._conn.commit()
             return order
@@ -400,6 +400,3 @@ def _backfill_order_pnl(conn):
     conn.commit()
 
 
-_migrate()
-        total_cost = exec_price * volume * (1 + BUY_FEE_RATE)
-            net_proceeds = exec_price * volume * (1 - SELL_FEE_RATE)

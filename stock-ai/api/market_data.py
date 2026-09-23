@@ -232,6 +232,48 @@ def get_turnover_rate(code: str) -> float:
     return stock.get("换手率", 0.0)
 
 
+def calc_volatility_profile(df: pd.DataFrame, atr_window: int = 20) -> dict:
+    """
+    波动率画像（用于波动率自适应止损止盈 + 仓位）：
+    - atr_20:  N 日 ATR（True Range 的滚动均值，单位: 元）
+    - atr_pct: ATR / 当前价  (如 0.025 表示 2.5% 日均振幅)
+    - std_20:  20 日日收益率标准差
+    - vol_rank: 在常见股票中的相对位置（启发式分数，0-1，>0.6 视为高波动）
+    当样本不足或字段缺失时返回空 dict。
+    """
+    if df is None or df.empty or len(df) < max(atr_window, 20):
+        return {}
+    required = {"high", "low", "close"}
+    if not required.issubset(set(df.columns)):
+        return {}
+    close = df["close"].astype(float)
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        (high - low),
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    atr_n = float(tr.rolling(atr_window).mean().iloc[-1])
+    last_close = float(close.iloc[-1])
+    atr_pct = atr_n / last_close if last_close > 0 else 0.0
+    daily_ret = close.pct_change()
+    std_n = float(daily_ret.rolling(atr_window).std().iloc[-1])
+    # 启发式 vol_rank：A 股典型日振幅多在 1%-4% 之间；>4% 视为高波动，<1% 视为低波动
+    if atr_pct <= 0:
+        vol_rank = 0.5
+    else:
+        vol_rank = max(0.0, min(1.0, (atr_pct - 0.01) / 0.03))
+    return {
+        "atr_20": atr_n,
+        "atr_pct": atr_pct,
+        "std_20": std_n,
+        "vol_rank": round(vol_rank, 3),
+        "last_close": last_close,
+    }
+
+
 def build_entry_indicators(stock: dict, ind: dict, turnover: float = None) -> str:
     """实时行情 + 技术指标 + 换手率拼接成 entry_indicators"""
     if turnover is None:

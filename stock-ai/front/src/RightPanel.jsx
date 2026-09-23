@@ -130,6 +130,8 @@ export default function RightPanel({ onSelect = () => {} }) {
   const [portfolio, setPortfolio] = useState(null);
   const [orders, setOrders] = useState([]);
   const [orderStats, setOrderStats] = useState(null);
+  const [reconcile, setReconcile] = useState(null);
+  const [showReconcile, setShowReconcile] = useState(false);
   const [tab, setTab] = useState('pos');
   const [orderDir, setOrderDir] = useState('all');
   const [error, setError] = useState(null);
@@ -141,10 +143,12 @@ export default function RightPanel({ onSelect = () => {} }) {
     async function load() {
       try {
         const [p, o, s] = await Promise.all([getPortfolio(), getOrders(), getOrderStats().catch(() => null)]);
+        const rc = await getReconcile().catch(() => null);
         if (!cancelled) {
           setPortfolio(p);
           setOrders(o?.orders || []);
           setOrderStats(s);
+          setReconcile(rc);
           setError(null);
           setLastRefresh(new Date());
         }
@@ -187,7 +191,45 @@ export default function RightPanel({ onSelect = () => {} }) {
             <div className="balance-row"><span className="balance-label">总资产</span><span className="balance-value">¥{fmt(bal.total_assets)}</span></div>
             <div className="balance-row"><span className="balance-label">现金</span><span className="balance-value" style={{ fontSize: '13px' }}>¥{fmt(bal.cash)}</span></div>
             <div className="balance-row"><span className="balance-label">持仓市值</span><span className="balance-value" style={{ fontSize: '13px' }}>¥{fmt(bal.market_value)}</span></div>
-            {lastRefresh && <div style={{ fontSize: '10px', color: 'var(--text-muted)', textAlign: 'right', marginTop: '4px' }}>{lastRefresh.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>}
+          {reconcile && (
+            <>
+              <div className="balance-row reconcile-toggle" onClick={() => setShowReconcile(s => !s)}>
+                <span className="balance-label">累计手续费</span>
+                <span className="balance-value" style={{ fontSize: '13px' }}>¥{fmt(reconcile.fees?.total || 0)}</span>
+              </div>
+              {showReconcile && (
+                <div className="reconcile-panel">
+                  <div className="reconcile-fees">
+                    <div className="reconcile-row"><span>买入佣金</span><span>¥{fmt(reconcile.fees?.buy_commission)}</span></div>
+                    <div className="reconcile-row"><span>卖出佣金</span><span>¥{fmt(reconcile.fees?.sell_commission)}</span></div>
+                    <div className="reconcile-row"><span>印花税</span><span>¥{fmt(reconcile.fees?.stamp_tax)}</span></div>
+                  </div>
+                  <div className="reconcile-divider" />
+                  <div className="reconcile-identity">
+                    <div className="reconcile-row bold"><span>初始资金</span><span>¥{fmt(reconcile.initial_cash)}</span></div>
+                    <div className="reconcile-row" style={{ color: (reconcile.realized_pnl || 0) >= 0 ? 'var(--red)' : 'var(--green)' }}>
+                      <span>+ 已实现盈亏</span><span>{(reconcile.realized_pnl || 0) >= 0 ? '+' : ''}¥{fmt(Math.abs(reconcile.realized_pnl || 0))}</span>
+                    </div>
+                    <div className="reconcile-row" style={{ color: (reconcile.unrealized_pnl || 0) >= 0 ? 'var(--red)' : 'var(--green)' }}>
+                      <span>+ 浮动盈亏</span><span>{(reconcile.unrealized_pnl || 0) >= 0 ? '+' : ''}¥{fmt(Math.abs(reconcile.unrealized_pnl || 0))}</span>
+                    </div>
+                    <div className="reconcile-row" style={{ color: 'var(--amber)' }}>
+                      <span>− 累计手续费</span><span>¥{fmt(reconcile.fees?.total || 0)}</span>
+                    </div>
+                  </div>
+                  <div className="reconcile-divider" />
+                  <div className="reconcile-row bold"><span>应有总资产</span><span>¥{fmt(reconcile.identity?.expected_with_fees)}</span></div>
+                  <div className="reconcile-row"><span>实际总资产</span><span>¥{fmt(reconcile.total_assets)}</span></div>
+                  <div className="reconcile-status" style={{ color: reconcile.identity?.consistent ? 'var(--green)' : 'var(--red)' }}>
+                    {reconcile.identity?.consistent
+                      ? `账本自洽 ✓（差额 ${fmt(reconcile.identity?.diff, 4)} 元）`
+                      : `账本不平 ✗ 差额 ${fmt(reconcile.identity?.diff, 4)} 元`}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          {lastRefresh && <div style={{ fontSize: '10px', color: 'var(--text-muted)', textAlign: 'right', marginTop: '4px' }}>{lastRefresh.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>}
           </div>
 
           {isFirstLoad ? (
@@ -349,3 +391,4 @@ export default function RightPanel({ onSelect = () => {} }) {
     </div>
   );
 }
+import { getReconcile } from '../api';

@@ -17,6 +17,7 @@ from rule_engine import analyze as rule_analyze
 from broker_adapter import get_broker
 from trader import get_trading_status
 from strategy_store import get_strategy_summary
+from strategy_store import get_effective_params
 from config import OLLAMA_BASE_URL, OLLAMA_API_KEY, OLLAMA_MODEL
 from config import EXTRA_LLM_MODELS
 from config import HIDE_LLM_MODELS
@@ -420,6 +421,25 @@ async def bot_model_set(request):
     return SafeJSONResponse({"ok": True, "model": model})
 
 
+async def strategy_params_get(request):
+    """返回前端交易规则弹窗所需的动态参数。"""
+    params = get_effective_params()
+    return SafeJSONResponse({
+        "short_stop_loss": params.short_stop_loss,
+        "short_take_profit": params.short_take_profit,
+        "mid_stop_loss": params.mid_stop_loss,
+        "mid_take_profit": params.mid_take_profit,
+        "long_stop_loss": params.long_stop_loss,
+        "long_take_profit": params.long_take_profit,
+        "max_position_size": params.max_position_size,
+        "max_total_position": params.max_total_position,
+        "short_trailing_activate": params.short_trailing_activate,
+        "short_trailing_drawdown": params.short_trailing_drawdown,
+        "mid_trailing_activate": params.mid_trailing_activate,
+        "mid_trailing_drawdown": params.mid_trailing_drawdown,
+    })
+
+
 async def research_status(request):
     """研究层只读状态：参数契约 + 平仓归因 + 策略汇总。"""
     root = Path(__file__).resolve().parents[2]
@@ -458,6 +478,7 @@ routes = [
     Route("/api/bot-model", bot_model_get),
     Route("/api/bot-model/set", bot_model_set, methods=["POST"]),
     Route("/api/research/status", research_status),
+    Route("/api/strategy-params", strategy_params_get),
 ]
 
 static_path = Path(__file__).parent.parent / "front" / "dist"

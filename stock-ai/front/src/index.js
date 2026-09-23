@@ -46,6 +46,3 @@ export const setBotModel = (model) =>
 
 export const getReconcile = () =>
   api.get('/reconcile').then(r => r.data);
-
-export const getStrategyParams = () =>
-  api.get('/strategy-params').then(r => r.data);

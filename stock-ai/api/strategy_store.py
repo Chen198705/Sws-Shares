@@ -42,6 +42,18 @@ class StrategyParams:
     short_trailing_drawdown: float = 0.03
     mid_trailing_activate: float = 0.06
     mid_trailing_drawdown: float = 0.03
+    # ---- 波动率自适应（自动红线，替代/覆盖人工阈值） ----
+    # 止损 = max(策略红线, -vol_stop_k * ATR%)；止盈 = max(策略红线, vol_take_k * ATR%)
+    # 仓位上限 = clip(vol_position_k / ATR%, vol_position_floor, vol_position_ceiling)
+    vol_stop_k: float = 2.5           # 止损距离 = k 倍 ATR%（与日内波动成正比）
+    vol_take_k: float = 4.0           # 止盈距离 = k 倍 ATR%（让高波动股能跑得更远）
+    vol_min_stop: float = -0.04       # 兜底：即使波动再小，止损也不会比这更紧
+    vol_max_stop: float = -0.12       # 兜底：即使波动再大，止损也不会比这更宽
+    vol_position_k: float = 0.30      # 仓位 = k / ATR%（日振幅 2% → 仓位 15%）
+    vol_position_floor: float = 0.03  # 仓位下限（防止过度集中）
+    vol_position_ceiling: float = 0.20  # 仓位上限（防止过度分散）
+    ai_review_interval_min: int = 30  # AI 复评持仓的最小间隔（分钟）
+    ai_review_min_pnl: float = -0.03  # 仅在浮亏 ≥ 此值时才发起 AI 复评（节省算力）
 
 
 def _conn():
@@ -125,10 +137,15 @@ def load_params() -> StrategyParams:
         "long_stop_loss", "long_take_profit",
         "short_trailing_activate", "short_trailing_drawdown",
         "mid_trailing_activate", "mid_trailing_drawdown",
+        "vol_stop_k", "vol_take_k",
+        "vol_min_stop", "vol_max_stop",
+        "vol_position_k", "vol_position_floor", "vol_position_ceiling",
+        "ai_review_min_pnl",
     }
     int_keys = {"min_confidence", "observation_trades_threshold",
                 "adjust_trades_threshold", "iteration",
-                "last_iterated_sell_id", "last_reviewed_sell_id"}
+                "last_iterated_sell_id", "last_reviewed_sell_id",
+                "ai_review_interval_min"}
     legacy_aliases = {"closed_trades_threshold": "observation_trades_threshold"}
     for key, val in rows:
         key = legacy_aliases.get(key, key)
@@ -414,6 +431,48 @@ def get_stop_take(strategy_type: str, params: StrategyParams) -> tuple[float, fl
         "长线": (params.long_stop_loss,  params.long_take_profit),
     }
     return mapping.get(label, (params.stop_loss_pct, params.take_profit_pct))
+
+
+def get_volatility_adjusted_stop_take(strategy_type: str, params: StrategyParams,
+                                       atr_pct: Optional[float]) -> tuple[float, float]:
+    """
+    波动率自适应止损止盈：用 ATR% 自动划红线，min/max_stop 仅做边界兜底。
+
+    规则：
+      stop_loss = clamp(-vol_stop_k * atr_pct, vol_max_stop, vol_min_stop)
+                 即：宽波动 → 容忍更多亏损；窄波动 → 不会比 min_stop 更紧；
+                     极端波动也不会突破 max_stop。
+      take_profit = max(vol_take_k * atr_pct, 0)
+                 即：高波动时让盈利奔跑；低波动时收得紧凑。
+
+    例子（中线，ATR%=3%）：
+      vol_stop_k=2.5  → vol 止损 -7.5%
+      vol_take_k=4    → vol 止盈 12%
+    """
+    if not atr_pct or atr_pct <= 0:
+        return params.vol_min_stop, 0.0
+    # 止损：波动越大可放宽（更负），波动越小越紧；min/max_stop 兜底
+    vol_sl = -params.vol_stop_k * atr_pct
+    sl = max(vol_sl, params.vol_max_stop)  # 不比 max_stop 更宽（更松）
+    sl = min(sl, params.vol_min_stop)      # 不比 min_stop 更紧
+    # 止盈：波动大时让盈利奔跑，atr_pct=0 时已 return 0
+    vol_tp = params.vol_take_k * atr_pct
+    return sl, vol_tp
+
+
+def get_volatility_position_size(params: StrategyParams, atr_pct: Optional[float]) -> float:
+    """
+    波动率自适应仓位：atr_pct 越大 → 仓位越小（风险预算归一）。
+    size = clip(vol_position_k / (atr_pct * 100), vol_position_floor, vol_position_ceiling)
+    其中 atr_pct 是小数（0.02 = 2%），除以 100 后换算成百分点（2）。
+    默认 k=0.30：日振幅 2% → 仓位 15%；日振幅 4% → 仓位 7.5%。
+    兜底：min(vol_position_ceiling, max_position_size)
+    """
+    ceiling = min(params.vol_position_ceiling, params.max_position_size)
+    if not atr_pct or atr_pct <= 0:
+        return max(params.vol_position_floor, ceiling)
+    size = params.vol_position_k / (atr_pct * 100)
+    return max(params.vol_position_floor, min(size, ceiling))
 
 
 def get_account_peak() -> float:

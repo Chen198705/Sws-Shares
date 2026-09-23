@@ -4,7 +4,7 @@ import IndexBar from './components/IndexBar';
 import Sidebar from './components/Sidebar';
 import StockChart from './components/StockChart';
 import RightPanel from './components/RightPanel';
-import { analyzeStock, getStock, getHistory, getMarketStatus, getBotModel, setBotModel, getHotStocks } from './api';
+import { analyzeStock, getStock, getHistory, getMarketStatus, getBotModel, setBotModel, getHotStocks, getStrategyParams } from './api';
 
 // ─── Logo SVG ───
 function LogoMark() {
@@ -81,9 +81,23 @@ function RuleSection({ tone, badge, title, items }) {
   );
 }
 
-// ─── Rule popover ───
+// ─── Rule popover (dynamic) ───
 function RulePopover({ onClose, anchorRect }) {
   const [pos, setPos] = useState(null);
+  const [params, setParams] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchParams = useCallback(() => {
+    setLoading(true);
+    getStrategyParams()
+      .then(d => setParams(d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetchParams();
+  }, [fetchParams]);
 
   useEffect(() => {
     if (!anchorRect) return;
@@ -100,6 +114,28 @@ function RulePopover({ onClose, anchorRect }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  if (!params || loading) {
+    return createPortal(
+      <>
+        <div className="rule-backdrop" onClick={onClose} />
+        <div className="rule-popover" style={pos ? {
+          left: pos.left, top: pos.top, width: pos.panelW, maxHeight: pos.maxH
+        } : { visibility: 'hidden' }}>
+          <div className="rule-popover-head">
+            <span className="rule-popover-title"><RuleIcon />K线 / 交易规则</span>
+            <button className="rule-popover-close" aria-label="关闭" onClick={onClose}><CloseIcon /></button>
+          </div>
+          <div className="rule-popover-body" style={{padding:'16px',color:'var(--text-muted)',fontSize:'13px'}}>
+            加载规则中...
+          </div>
+        </div>
+      </>,
+      document.body
+    );
+  }
+
+  const pct = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(0) + '%';
 
   return createPortal(
     <>
@@ -127,26 +163,27 @@ function RulePopover({ onClose, anchorRect }) {
             沈万三按以下规则扫描全市场并给出短/中/长线决策
           </div>
           <div className="rule-grid">
-            <RuleSection tone="buy" badge="需同时满足" title="买入条件" items={[
-              'RSI(14) < 40 或 KDJ K值 < 30（超卖）',
-              '股价在 MA5 与 MA20 之间企稳',
-              '相对大盘（沪深300）涨幅领先',
+            <RuleSection tone="sell" badge="任一触发" title="卖出条件（止损/止盈）" items={[
+              `短线：止损 ${pct(params.short_stop_loss)} / 止盈 ${pct(params.short_take_profit)}`,
+              `中线：止损 ${pct(params.mid_stop_loss)} / 止盈 ${pct(params.mid_take_profit)}`,
+              `长线：止损 ${pct(params.long_stop_loss)} / 止盈 ${pct(params.long_take_profit)}`,
             ]} />
-            <RuleSection tone="sell" badge="任一触发" title="卖出条件" items={[
-              'RSI(14) > 70 或 KDJ K值 > 80（超买）',
-              '股价跌破 MA20 且未能在 3 日内收复',
-              '持仓亏损超过 -5%',
+            <RuleSection tone="buy" badge="回撤止盈" title="移动止盈" items={[
+              `短线：浮盈 ≥ ${pct(params.short_trailing_activate)} 后，从峰值回撤 ${pct(params.short_trailing_drawdown)} 即落袋`,
+              `中线：浮盈 ≥ ${pct(params.mid_trailing_activate)} 后，从峰值回撤 ${pct(params.mid_trailing_drawdown)} 即落袋`,
+              '长线：不启用（让利润跑）',
             ]} />
           </div>
-          <RuleSection tone="period" badge="持仓参考" title="持仓周期" items={[
-            '短线：5–15 个交易日（RSI 超卖短线反弹）',
+          <RuleSection tone="period" badge="持仓参考" title="买入与持仓周期" items={[
+            '买入：AI 分析给出“建议买入/建议加仓”信号（结合技术面与相对大盘表现）',
+            '短线：5–15 个交易日（超卖反弹 / 短线动能）',
             '中线：1–3 个月（均线多头 + 趋势确立）',
             '长线：3 个月以上（基本面驱动）',
           ]} />
           <RuleSection tone="risk" badge="风控红线" title="风险控制" items={[
-            '单只仓位上限 20% 总资产',
-            '总持仓不超过 5 只股票',
-            '止损位：买入价 -6%',
+            `单只仓位上限：${pct(params.max_position_size)}`,
+            `总持仓上限：${pct(params.max_total_position)}`,
+            'T+1：当日买入不可卖出（含止损/止盈/回撤）',
           ]} />
         </div>
       </div>
@@ -154,7 +191,6 @@ function RulePopover({ onClose, anchorRect }) {
     document.body
   );
 }
-
 // ─── AI icon ───
 function AiIcon() {
   return (

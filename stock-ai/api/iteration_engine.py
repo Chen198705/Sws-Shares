@@ -144,6 +144,11 @@ def build_review_prompt(observations: list = None):
    - mid_stop_loss / mid_take_profit: 中线止损/止盈（建议 -5%、+10%/+15%）
    - long_stop_loss / long_take_profit: 长线止损/止盈（建议 -8%/+-10%、+20%/+30%）
    - min_confidence: 最小买入置信度（当前60）
+   - 波动率自适应参数（仅在 ATR 自适应止损/仓位失效时调整）：
+     - vol_stop_k: 止损 = -k * ATR%（默认 2.5）
+     - vol_take_k: 止盈 = k * ATR%（默认 4.0）
+     - vol_position_k: 仓位上限 = k / ATR%（默认 0.025）
+     - vol_min_stop / vol_max_stop: 止损的兜底范围（默认 -4% / -12%）
    止损必须是负数，止盈必须是正数；可用小数（-0.03 表示 -3%）或整数百分比（-3）
    若证据不足，可以只输出 JSON 空对象 {{}} 并说明原因，不要为了改而改
 3. 给出300字以内的策略改进总结

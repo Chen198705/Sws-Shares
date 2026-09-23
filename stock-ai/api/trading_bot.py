@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from market_data import (
     get_all_indices, get_stock_realtime, get_stock_history,
     calc_indicators, get_turnover_rate, build_entry_indicators,
+    calc_volatility_profile,
 )
 from ai_client import OllamaClient, _policy_overlay_text
 from broker_adapter import get_broker
@@ -34,6 +35,7 @@ from strategy_store import (
     get_effective_params, get_research_overlay,
     get_account_peak, update_account_peak, get_circuit_break_until, set_circuit_break,
     close_attribution_for_code,
+    get_volatility_adjusted_stop_take, get_volatility_position_size,
 )
 from industry_map import sector_concentration_ok
 from iteration_engine import run_iteration, iteration_running
@@ -58,6 +60,18 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ts TEXT, code TEXT, action TEXT, strategy_type TEXT,
         confidence INTEGER, price REAL, executed INTEGER DEFAULT 0, analysis TEXT)""")
+    # 持久化 trailing peak：进程重启不丢失峰值跟踪，避免回撤止盈失效
+    c.execute("""CREATE TABLE IF NOT EXISTS trailing_peaks (
+        code TEXT PRIMARY KEY,
+        peak_pnl REAL NOT NULL,
+        strategy_type TEXT DEFAULT '中线',
+        updated_at TEXT NOT NULL)""")
+    # AI 复评审计：保留最近一次 AI 复评结果，便于事后追溯
+    c.execute("""CREATE TABLE IF NOT EXISTS ai_review_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT, code TEXT, strategy_type TEXT,
+        action TEXT, reason TEXT, indicators TEXT,
+        pnl_pct REAL, atr_pct REAL)""")
     try:
         c.execute("ALTER TABLE trades ADD COLUMN strategy_type TEXT DEFAULT '中线'")
     except Exception:
@@ -293,6 +307,117 @@ def _horizon_label(value) -> str:
 
 
 _trailing_peak: dict = {}
+_last_ai_review: dict = {}  # code -> datetime（最近一次 AI 复评的时间）
+
+
+def _load_trailing_peak(code: str) -> Optional[float]:
+    """从 SQLite 读取指定股票的 trailing peak；用于进程重启后恢复峰值跟踪。"""
+    try:
+        c = sqlite3.connect(str(DB_PATH))
+        row = c.execute("SELECT peak_pnl FROM trailing_peaks WHERE code=?", (code,)).fetchone()
+        c.close()
+        return float(row[0]) if row else None
+    except Exception:
+        return None
+
+
+def _save_trailing_peak(code: str, peak_pnl: float, stype: str = "中线"):
+    """持久化 trailing peak；进程重启不丢峰值，回撤止盈才能稳定生效。"""
+    try:
+        c = sqlite3.connect(str(DB_PATH))
+        c.execute(
+            "INSERT OR REPLACE INTO trailing_peaks (code, peak_pnl, strategy_type, updated_at) VALUES (?,?,?,?)",
+            (code, float(peak_pnl), stype, datetime.now().isoformat()))
+        c.commit()
+        c.close()
+    except Exception as e:
+        print(f"  [_trailing_peak] 保存失败 {code}: {e}")
+
+
+def _drop_trailing_peak(code: str):
+    """平仓后清理 trailing peak 记录。"""
+    try:
+        c = sqlite3.connect(str(DB_PATH))
+        c.execute("DELETE FROM trailing_peaks WHERE code=?", (code,))
+        c.commit()
+        c.close()
+    except Exception:
+        pass
+
+
+def _log_ai_review(code: str, stype: str, action: str, reason: str,
+                    indicators: str, pnl_pct: float, atr_pct: float):
+    try:
+        c = sqlite3.connect(str(DB_PATH))
+        c.execute(
+            "INSERT INTO ai_review_log (ts,code,strategy_type,action,reason,indicators,pnl_pct,atr_pct)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (datetime.now().isoformat(), code, stype, action, reason[:200],
+             indicators[:300], pnl_pct, atr_pct))
+        c.commit()
+        c.close()
+    except Exception:
+        pass
+
+
+def _should_ai_review(code: str, pnl_pct: float, params) -> bool:
+    """是否需要发起 AI 复评：距上次复评 ≥ 间隔 + 仅在浮亏较大时触发，避免无谓开销。"""
+    interval = max(5, int(getattr(params, "ai_review_interval_min", 30))) * 60
+    last = _last_ai_review.get(code)
+    if last and (datetime.now() - last).total_seconds() < interval:
+        return False
+    return pnl_pct <= -float(getattr(params, "ai_review_min_pnl", -0.03))
+
+
+def _ai_re_evaluate_position(client, broker, code: str, pos, params, atr_pct: float) -> str:
+    """轻量级 AI 复评：只问"继续持有 vs 卖出"，避免冗长分析拖慢决策。
+    返回 'sell' / 'hold' / 'skip'（skip 表示模型不可用，走规则）。"""
+    if not client or not client.is_alive():
+        return "skip"
+    try:
+        entry = pos.avg_cost or 0
+        cur_p = pos.current_price or 0
+        if entry <= 0 or cur_p <= 0:
+            return "skip"
+        pnl_pct = (cur_p - entry) / entry
+        stype = _horizon_label(getattr(pos, 'horizon', '中线'))
+        hist = get_stock_history(code, days=30)
+        ind = calc_indicators(hist)
+        vol = calc_volatility_profile(hist)
+        ind_brief = ""
+        if ind:
+            ind_brief = (
+                f"MA5={ind.get('MA5',0):.2f} MA20={ind.get('MA20',0):.2f} "
+                f"均线多头={ind.get('均线多头','?')} RSI={ind.get('RSI(14)',0):.1f} "
+                f"MACD状态={ind.get('MACD状态','?')} KDJ状态={ind.get('KDJ状态','?')}"
+            )
+        atr_str = f"{vol.get('atr_pct', 0)*100:.2f}%" if vol else "?"
+        prompt = f"""复评持仓 {code}（{stype}，入场 {entry:.2f}，现价 {cur_p:.2f}，浮盈 {pnl_pct*100:+.1f}%）
+ATR%={atr_str}。指标: {ind_brief}
+波动率自适应止损线={params.vol_stop_k*atr_pct*100 if atr_pct else '?'}%。
+请判断：这只票的趋势是否被破坏？只回答 JSON：{{"action":"sell|hold","reason":"一句话原因"}}"""
+        text = client.chat([
+            {"role": "system", "content": "你是严格量化交易员，专注判断趋势是否破坏。"},
+            {"role": "user", "content": prompt},
+        ], temperature=0.1)
+        m = re.search(r'\{[^{}]*"action"[^{}]*\}', text or "", re.DOTALL)
+        action = "hold"
+        reason = ""
+        if m:
+            try:
+                obj = _json.loads(m.group(0))
+                action = str(obj.get("action", "hold")).lower().strip()
+                reason = str(obj.get("reason", ""))[:200]
+            except Exception:
+                pass
+        if action not in ("sell", "hold"):
+            action = "hold"
+        _last_ai_review[code] = datetime.now()
+        _log_ai_review(code, stype, action, reason, ind_brief, pnl_pct, atr_pct or 0)
+        return action
+    except Exception as e:
+        print(f"  [{code}] AI 复评失败: {e}")
+        return "skip"
 
 
 def _trailing_hit(stype: str, params, peak: float, pnl_pct: float) -> bool:
@@ -320,14 +445,26 @@ def check_positions(client, broker):
         if broker.sellable_volume(code) <= 0:
             continue
         pnl_pct = (cur_p - entry) / entry
-        sl, tp = get_stop_take(stype, params)
-        peak = _trailing_peak.get(code, pnl_pct)
+        # ── 波动率画像：用 ATR% 反推红线（替代/收紧人工阈值） ──
+        vol_prof = calc_volatility_profile(get_stock_history(code, days=30))
+        atr_pct = (vol_prof or {}).get("atr_pct") or 0.0
+        sl_fixed, tp_fixed = get_stop_take(stype, params)
+        sl, tp = get_volatility_adjusted_stop_take(stype, params, atr_pct)
+        # ── trailing peak：先查内存 → 缺失时从 SQLite 加载 → 写回 ──
+        peak = _trailing_peak.get(code)
+        if peak is None:
+            peak = _load_trailing_peak(code)
+            if peak is None:
+                peak = pnl_pct
+            _trailing_peak[code] = peak
         if pnl_pct > peak:
             peak = pnl_pct
             _trailing_peak[code] = peak
+            _save_trailing_peak(code, peak, stype)
         trailing = _trailing_hit(stype, params, peak, pnl_pct)
-        if pnl_pct <= sl:
-            reason = f"触发止损（{pnl_pct*100:.1f}%）[{stype}]"
+        # ── 止损 / 止盈 / 回撤 共用的卖出执行 ──
+        def _do_sell(reason: str):
+            nonlocal action_taken
             try:
                 order = broker.sell(code, vol, cur_p)
                 if order is not None and order.status == "filled":
@@ -336,40 +473,49 @@ def check_positions(client, broker):
                     close_attribution_for_code(code, pnl, reason, vol)
                     print(f"  [{code}] {reason}，盈亏 ¥{pnl:+.2f}")
                     _trailing_peak.pop(code, None)
+                    _drop_trailing_peak(code)
                     action_taken = True
+                    return True
             except Exception as e:
-                print(f"  [{code}] 止损失败: {e}")
-        elif pnl_pct >= tp:
-            reason = f"触发止盈（+{pnl_pct*100:.1f}%）[{stype}]"
-            try:
-                order = broker.sell(code, vol, cur_p)
-                if order is not None and order.status == "filled":
-                    pnl = (order.filled_price - entry) * vol
-                    tid = log_trade(code, "sell", order.filled_price, vol, pnl, reason, stype)
-                    close_attribution_for_code(code, pnl, reason, vol)
-                    print(f"  [{code}] {reason}，盈亏 ¥{pnl:+.2f}")
-                    _trailing_peak.pop(code, None)
-                    action_taken = True
-            except Exception as e:
-                print(f"  [{code}] 止盈失败: {e}")
-        elif trailing:
-            reason = f"触发回撤止盈（峰值+{peak*100:.1f}%，现+{pnl_pct*100:.1f}%）[{stype}]"
-            try:
-                order = broker.sell(code, vol, cur_p)
-                if order is not None and order.status == "filled":
-                    pnl = (order.filled_price - entry) * vol
-                    tid = log_trade(code, "sell", order.filled_price, vol, pnl, reason, stype)
-                    close_attribution_for_code(code, pnl, reason, vol)
-                    print(f"  [{code}] {reason}，盈亏 ¥{pnl:+.2f}")
-                    _trailing_peak.pop(code, None)
-                    action_taken = True
-            except Exception as e:
-                print(f"  [{code}] 回撤止盈失败: {e}")
+                print(f"  [{code}] 卖出失败: {e}")
+            return False
+
+        # 标记用了波动率红线时，在 reason 里追加说明（便于审计）
+        if atr_pct > 0 and abs(sl - sl_fixed) > 1e-9:
+            tag = f" vol红线{sr(sl*100)}% ATR%={atr_pct*100:.1f}%"
         else:
-            print(f"  [{code}] 持仓[{stype}] 成本¥{entry:.2f} 现价¥{cur_p:.2f} {pnl_pct*100:+.1f}%")
+            tag = ""
+
+        if pnl_pct <= sl:
+            reason = f"触发止损（{pnl_pct*100:.1f}%）[{stype}]{tag}"
+            _do_sell(reason)
+        elif pnl_pct >= tp:
+            reason = f"触发止盈（+{pnl_pct*100:.1f}%）[{stype}]{tag}"
+            _do_sell(reason)
+        elif trailing:
+            reason = f"触发回撤止盈（峰值+{peak*100:.1f}%，现+{pnl_pct*100:.1f}%）[{stype}]{tag}"
+            _do_sell(reason)
+        else:
+            # ── 兜底：价格规则未触发 → 触发 AI 复评通道（浮亏时） ──
+            if _should_ai_review(code, pnl_pct, params):
+                decision = _ai_re_evaluate_position(client, broker, code, pos, params, atr_pct)
+                if decision == "sell":
+                    reason = f"AI复评建议平仓（{pnl_pct*100:+.1f}%，ATR%={atr_pct*100:.1f}%）[{stype}]"
+                    _do_sell(reason)
+                else:
+                    print(f"  [{code}] 持仓[{stype}] 成本¥{entry:.2f} 现价¥{cur_p:.2f} {pnl_pct*100:+.1f}% vol红线 {sl*100:.1f}%/{tp*100:.1f}% AI: {decision}")
+            else:
+                print(f"  [{code}] 持仓[{stype}] 成本¥{entry:.2f} 现价¥{cur_p:.2f} {pnl_pct*100:+.1f}% vol红线 {sl*100:.1f}%/{tp*100:.1f}%")
     if action_taken:
         trigger_iteration()
 
+
+# sr: 简化的数字格式化（用于止损/止盈线标签）
+def sr(x):
+    try:
+        return f"{x:.1f}"
+    except Exception:
+        return str(x)
 
 def analyze_and_decide(client, broker, code):
     try:
@@ -390,6 +536,19 @@ def analyze_and_decide(client, broker, code):
             params = get_effective_params()
             policy_hint = _policy_overlay_text()
             policy_block = f"\n{policy_hint}\n" if policy_hint else ""
+            # ── 波动率画像：让 AI 知道自动红线和仓位上限 ──
+            vol_prof = calc_volatility_profile(get_stock_history(code, days=30))
+            atr_pct = (vol_prof or {}).get("atr_pct") or 0.0
+            vol_sl, vol_tp = get_volatility_adjusted_stop_take(horizon_label, params, atr_pct)
+            vol_pos = get_volatility_position_size(params, atr_pct)
+            vol_block = (
+                f"\n波动率画像（系统自适应红线）：\n"
+                f"- ATR%={atr_pct*100:.2f}%（近 20 日日均振幅）\n"
+                f"- 自动止损线 {vol_sl*100:.1f}% / 自动止盈线 {vol_tp*100:.1f}%（基于 ATR%，会覆盖固定阈值）\n"
+                f"- 单票仓位上限 {vol_pos*100:.1f}%（高波动 → 小仓位）\n"
+                if atr_pct > 0 else
+                "\n波动率画像缺失，沿用固定红线。\n"
+            )
             prompt = f"""股票：{stock.get('股票名', code)}（{code}）
 当前价：{stock['最新价']} 涨跌幅：{stock['涨跌幅']:+.2f}%
 今开={stock['今开']} 最高={stock['最高']} 最低={stock['最低']}
@@ -403,6 +562,7 @@ K={ind['K']:.1f} D={ind['D']:.1f} J={ind['J']:.1f} KDJ金叉={ind['KDJ金叉']} 
 {policy_block}
 本只候选股的最终策略类型必须为：{horizon_label}
 总资产约100万，短线止损{params.short_stop_loss*100:.0f}%止盈{params.short_take_profit*100:.0f}%，中线止损{params.mid_stop_loss*100:.0f}%止盈{params.mid_take_profit*100:.0f}%，长线止损{params.long_stop_loss*100:.0f}%止盈{params.long_take_profit*100:.0f}%
+{vol_block}
 
 请严格判断，给出：
 1. 策略类型：直接输出“{horizon_label}”，不要输出其他周期
@@ -465,8 +625,14 @@ def execute_decision(decision, broker):
         if max_new <= 0:
             print(f"  [{code}] 总仓位已达上限")
             return
-        # RISK.md 单票上限：任何单只股票不超过总资产 max_position_size
-        single_cap = total * params.max_position_size
+        # ── 波动率自适应仓位：用 ATR% 反推单票上限 ──
+        # 单票红线 = min(max_position_size, vol_position_size)
+        vol_prof = calc_volatility_profile(get_stock_history(code, days=30))
+        atr_pct = (vol_prof or {}).get("atr_pct") or 0.0
+        vol_cap_pct = get_volatility_position_size(params, atr_pct)
+        single_cap_pct = min(params.max_position_size, vol_cap_pct)
+        single_cap = total * single_cap_pct
+        print(f"  [{code}] vol位置 ATR%={atr_pct*100:.2f}% → 单票上限 {single_cap_pct*100:.1f}%")
         desired = min(total * decision["position_ratio"], max_new, single_cap)
         vol = int(desired / price / 100) * 100
         if vol < 100:
