@@ -1,22 +1,10 @@
-import { useState, useEffect } from 'react';
-import { placeOrder, getHotStocks, getSignal } from '../api';
+import { useState } from 'react';
+import { placeOrder, getSignal } from '../api';
 
-const DEFAULT_STOCKS = [
-  { code: '600519', name: '贵州茅台' },
-  { code: '000001', name: '平安银行' },
-  { code: '600036', name: '招商银行' },
-  { code: '601318', name: '中国平安' },
-  { code: '000858', name: '五粮液' },
-  { code: '300750', name: '宁德时代' },
-  { code: '002475', name: '立讯精密' },
-];
-
-export default function Sidebar({ code, setCode, action, setAction, onAnalyze, aiOnline, marketState, tCode, setTCode, signalMode, setSignalMode }) {
+export default function Sidebar({ code, setCode, action, setAction, onAnalyze, aiOnline, marketState, tCode, setTCode, setSignalMode, hotStocks, hotLoading }) {
   const [internalTCode, setInternalTCode] = useState(tCode || code || '600519');
   const effectiveTCode = tCode !== undefined ? tCode : internalTCode;
   const effectiveSetTCode = (v) => { if (setTCode) setTCode(v); setInternalTCode(v); };
-  const [hotStocks, setHotStocks] = useState([]);
-  const [hotLoading, setHotLoading] = useState(true);
   const [volume, setVolume] = useState(10);
   const [horizon, setHorizon] = useState('medium');
   const [ordering, setOrdering] = useState(false);
@@ -24,25 +12,6 @@ export default function Sidebar({ code, setCode, action, setAction, onAnalyze, a
  const [signal, setSignal] = useState(null);
   const [signalVisible, setSignalVisible] = useState(false);
  const [signalLoading, setSignalLoading] = useState(false);
-
-
-  useEffect(() => {
-    getHotStocks()
-      .then(d => {
-        const stocks = d.stocks || [];
-        if (stocks.length > 0) {
-          setHotStocks(stocks);
-        } else {
-          // fallback to default stocks
-          setHotStocks(DEFAULT_STOCKS.map((s, i) => ({ ...s, chg_pct: 0, price: 0 })));
-        }
-        setHotLoading(false);
-      })
-      .catch(() => {
-        setHotStocks(DEFAULT_STOCKS.map((s) => ({ ...s, chg_pct: 0, price: 0 })));
-        setHotLoading(false);
-      });
-  }, []);
 
   async function doOrder() {
     if (!effectiveTCode) return;
@@ -96,10 +65,10 @@ export default function Sidebar({ code, setCode, action, setAction, onAnalyze, a
       <div className="sb-section">
         <div className="sb-section-title">股票查询</div>
         <div className="stock-input-wrap">
-          <input className="stock-input" value={effectiveTCode} onChange={e => effectiveSetTCode(e.target.value)} placeholder="6位代码" onKeyDown={e => e.key === 'Enter' && (handleSelect(effectiveTCode), onAnalyze && onAnalyze())} />
+          <input className="stock-input" value={effectiveTCode} onChange={e => effectiveSetTCode(e.target.value)} placeholder="6位代码" onKeyDown={e => e.key === 'Enter' && (handleSelect(effectiveTCode), onAnalyze?.(effectiveTCode))} />
         </div>
         <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
-          <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => { handleSelect(effectiveTCode); onAnalyze && onAnalyze(); }}>
+          <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => { handleSelect(effectiveTCode); onAnalyze?.(effectiveTCode); }}>
             🔍 分析
           </button>
           <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { handleSelect(effectiveTCode); doSignal(); }} disabled={!aiOnline || signalLoading}>

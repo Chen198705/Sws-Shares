@@ -4,7 +4,24 @@ import IndexBar from './components/IndexBar';
 import Sidebar from './components/Sidebar';
 import StockChart from './components/StockChart';
 import RightPanel from './components/RightPanel';
-import { analyzeStock, getStock, getHistory, setBotModel, getHotStocks, getStrategyParams } from './api';
+import {
+  analyzeStock,
+  getStock,
+  getHistory,
+  setBotModel as persistBotModel,
+  getHotStocks,
+  getStrategyParams,
+} from './api';
+
+const DEFAULT_HOT_STOCKS = [
+  { code: '600519', name: '贵州茅台' },
+  { code: '000001', name: '平安银行' },
+  { code: '600036', name: '招商银行' },
+  { code: '601318', name: '中国平安' },
+  { code: '000858', name: '五粮液' },
+  { code: '300750', name: '宁德时代' },
+  { code: '002475', name: '立讯精密' },
+];
 
 // ─── Logo SVG ───
 function LogoMark() {
@@ -232,7 +249,7 @@ function horizonLabel(horizon) {
 
 function extractAdvice(text) {
   if (!text) return '';
-  let m = text.match(/\[操作建议\]\s*([^\[]+)/);
+  let m = text.match(/\[操作建议\]\s*([^[]+)/);
   if (!m) m = text.match(/(?:^|\n)\s*2\.\s*操作建议\s*[：:]\s*([^\n]+)/);
   if (!m) m = text.match(/操作建议[：:]\s*([^\n]+)/);
   if (!m) return '';
@@ -240,7 +257,7 @@ function extractAdvice(text) {
 }
 
 // ─── Analysis Result ───
-function AnalysisResult({ data, code }) {
+function AnalysisResult({ data }) {
   if (!data) return null;
   if (data.error) return <div className="empty"><div className="empty-title">请求失败</div><div className="empty-sub text-muted">{data.error}</div></div>;
 
@@ -271,33 +288,18 @@ function AnalysisResult({ data, code }) {
   );
 }
 
-// ─── Stock Info Card (auto-loads on code change) ───
-function StockInfoCard({ code, onReady }) {
-  const [stock, setStock] = useState(null);
-  const [ind, setInd] = useState(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    if (!code) return;
-    const controller = new AbortController();
-    let active = true;
-    setLoading(true);
-    setInd(null);
-    Promise.allSettled([
-      getStock(code, controller.signal),
-      getHistory(code, 240, 'day', controller.signal),
-    ]).then(([stockRes, histRes]) => {
-      if (!active) return;
-      if (stockRes.status === 'fulfilled') setStock(stockRes.value);
-      if (histRes.status === 'fulfilled') setInd(histRes.value.indicators || null);
-      setLoading(false);
-      onReady && onReady(code);
-    });
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [code, onReady]);
-  if (loading || !stock) return <div className="card"><div className="card-body"><div className="loading"><div className="spinner"/>加载行情...</div></div></div>;
+// ─── Stock Info Card (presentational) ───
+function StockInfoCard({ code, stock, indicators, loading, error }) {
+  if (loading) return <div className="card"><div className="card-body"><div className="loading"><div className="spinner"/>加载行情...</div></div></div>;
+  if (!stock) {
+    return (
+      <div className="card">
+        <div className="card-body">
+          <div className="loading">{error ? `行情加载失败：${error}` : '暂无行情数据'}</div>
+        </div>
+      </div>
+    );
+  }
   if (stock.错误) return null;
   const pct = stock.涨跌幅 || 0;
   const trendCls = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat';
@@ -318,16 +320,16 @@ function StockInfoCard({ code, onReady }) {
           <div className="metric-item"><div className="metric-label">今开</div><div className="metric-value">{stock.今开}</div><div className="metric-sub">昨收 {stock.昨收}</div></div>
           <div className="metric-item"><div className="metric-label">最高</div><div className="metric-value">{stock.最高}</div><div className="metric-sub">最低 {stock.最低}</div></div>
           <div className="metric-item"><div className="metric-label">成交额</div><div className="metric-value">{(stock.成交额/1e8).toFixed(2)}亿</div><div className="metric-sub">成交量 {(stock.成交量/1e4).toFixed(2)}万手</div></div>
-          <div className="metric-item"><div className="metric-label">换手率</div><div className="metric-value">{stock.换手率 || 0}%</div><div className="metric-sub">量比 {ind ? fmt(ind.量比) : '—'}</div></div>
+          <div className="metric-item"><div className="metric-label">换手率</div><div className="metric-value">{stock.换手率 || 0}%</div><div className="metric-sub">量比 {indicators ? fmt(indicators.量比) : '—'}</div></div>
         </div>
-        {ind && (
+        {indicators && (
           <div className="ind-row">
-            <div className="ind-item"><div className="ind-label">MA5</div><div className="ind-value">{fmt(ind.MA5)}</div></div>
-            <div className="ind-item"><div className="ind-label">MA20</div><div className="ind-value">{fmt(ind.MA20)}</div></div>
-            <div className="ind-item"><div className="ind-label">RSI</div><div className="ind-value">{fmt(ind['RSI(14)'], 1)}</div></div>
-            <div className="ind-item"><div className="ind-label">MACD</div><div className="ind-value">{fmt(ind.MACD, 4)}</div></div>
-            <div className="ind-item"><div className="ind-label">KDJ</div><div className="ind-value">K{fmt(ind.K, 0)} D{fmt(ind.D, 0)}</div></div>
-            <div className="ind-item"><div className="ind-label">均线</div><div className="ind-value" style={{ color: ind.均线多头 === '是' ? 'var(--green)' : 'var(--text-muted)' }}>{ind.均线多头}</div></div>
+            <div className="ind-item"><div className="ind-label">MA5</div><div className="ind-value">{fmt(indicators.MA5)}</div></div>
+            <div className="ind-item"><div className="ind-label">MA20</div><div className="ind-value">{fmt(indicators.MA20)}</div></div>
+            <div className="ind-item"><div className="ind-label">RSI</div><div className="ind-value">{fmt(indicators['RSI(14)'], 1)}</div></div>
+            <div className="ind-item"><div className="ind-label">MACD</div><div className="ind-value">{fmt(indicators.MACD, 4)}</div></div>
+            <div className="ind-item"><div className="ind-label">KDJ</div><div className="ind-value">K{fmt(indicators.K, 0)} D{fmt(indicators.D, 0)}</div></div>
+            <div className="ind-item"><div className="ind-label">均线</div><div className="ind-value" style={{ color: indicators.均线多头 === '是' ? 'var(--green)' : 'var(--text-muted)' }}>{indicators.均线多头}</div></div>
           </div>
         )}
       </div>
@@ -341,12 +343,22 @@ export default function App() {
   const codeRef = useRef('');
   const analysisAbortRef = useRef(null);
   const analysisRequestRef = useRef(0);
+  const manualAnalysisCodeRef = useRef('');
+  const signalModeRef = useRef(false);
   const [readyCode, setReadyCode] = useState('');
+  const [stockSnapshot, setStockSnapshot] = useState({
+    code: '',
+    stock: null,
+    indicators: null,
+    history: null,
+    loading: false,
+    error: '',
+  });
+  const [hotStocks, setHotStocks] = useState([]);
+  const [hotLoading, setHotLoading] = useState(true);
   const [analysisData, setAnalysisData] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [signalMode, setSignalMode] = useState(false); // block auto-analyze during signal toggle
   const [aiOnline, setAiOnline] = useState(null);
-  const [modelName, setModelName] = useState('');
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [marketState, setMarketState] = useState({ open: false, message: '' });
@@ -357,8 +369,15 @@ export default function App() {
   const [botSaving, setBotSaving] = useState(false);
   const [action, setAction] = useState('buy');
   const [ruleAnchor, setRuleAnchor] = useState(null);
-  const handleStockReady = useCallback((readyStockCode) => {
-    setReadyCode(readyStockCode);
+
+  const selectCode = useCallback((nextCode) => {
+    if (!nextCode) return;
+    codeRef.current = nextCode;
+    setCode(nextCode);
+  }, []);
+
+  const setSignalMode = useCallback((active) => {
+    signalModeRef.current = active;
   }, []);
 
   // Health check + market status
@@ -370,7 +389,6 @@ export default function App() {
         const r = await fetch('/api/health');
         const d = await r.json();
         if (typeof d.ai === 'boolean') setAiOnline(d.ai);
-        setModelName(d.model || '');
         return typeof d.ai === 'boolean' ? d.ai : null;
       } catch {
         return null;
@@ -390,27 +408,32 @@ export default function App() {
       .catch(() => {});
     fetch('/api/models')
       .then(r => r.json())
-      .then(d => { setModels(d.models || []); setSelectedModel(d.current || ''); setModelName(d.current || ''); })
+      .then(d => { setModels(d.models || []); setSelectedModel(d.current || ''); })
       .catch(() => {});
     fetch('/api/market-status')
       .then(r => r.json())
       .then(d => setMarketState({ open: d.open, message: d.message }))
       .catch(() => {});
+    const hotController = new AbortController();
     // Default query code: first stock in today's recommendation list.
-    getHotStocks()
+    getHotStocks(hotController.signal)
       .then(d => {
-        const first = (d.stocks && d.stocks[0] && d.stocks[0].code) || '600519';
+        const stocks = (d.stocks || []).length > 0
+          ? d.stocks
+          : DEFAULT_HOT_STOCKS.map(s => ({ ...s, chg_pct: 0, price: 0 }));
+        setHotStocks(stocks);
         if (!codeRef.current) {
-          codeRef.current = first;
-          setCode(first);
+          selectCode(stocks[0]?.code || '600519');
         }
       })
       .catch(() => {
+        const stocks = DEFAULT_HOT_STOCKS.map(s => ({ ...s, chg_pct: 0, price: 0 }));
+        setHotStocks(stocks);
         if (!codeRef.current) {
-          codeRef.current = '600519';
-          setCode('600519');
+          selectCode(stocks[0].code);
         }
-      });
+      })
+      .finally(() => setHotLoading(false));
     const t = setInterval(() => {
       fetch('/api/market-status').then(r => r.json()).then(d => setMarketState({ open: d.open, message: d.message })).catch(() => {});
     }, 60000);
@@ -418,13 +441,60 @@ export default function App() {
       stopped = true;
       clearInterval(t);
       clearTimeout(healthTimer);
+      hotController.abort();
     };
- }, []);
+ }, [selectCode]);
 
+  // Single owner for the current stock quote and daily history.
+  useEffect(() => {
+    if (!code) {
+      setReadyCode('');
+      return;
+    }
+    const controller = new AbortController();
+    let active = true;
+    setReadyCode('');
+    setStockSnapshot({
+      code,
+      stock: null,
+      indicators: null,
+      history: null,
+      loading: true,
+      error: '',
+    });
+    Promise.allSettled([
+      getStock(code, controller.signal),
+      getHistory(code, 240, 'day', controller.signal),
+    ]).then(([stockResult, historyResult]) => {
+      if (!active) return;
+      const stock = stockResult.status === 'fulfilled' ? stockResult.value : null;
+      const history = historyResult.status === 'fulfilled' ? historyResult.value : null;
+      const errors = [stockResult, historyResult]
+        .filter(result => result.status === 'rejected')
+        .map(result => result.reason?.message || '请求失败');
+      setStockSnapshot({
+        code,
+        stock,
+        indicators: history?.indicators || null,
+        history,
+        loading: false,
+        error: errors.join('；'),
+      });
+      if (stock && history) setReadyCode(code);
+    });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [code]);
 
   // 行情和日线先完成，再启动 AI 分析，避免首屏请求互相阻塞。
   useEffect(() => {
-    if (!code || readyCode !== code || signalMode) return;
+    if (!code || readyCode !== code || signalModeRef.current) return;
+    if (manualAnalysisCodeRef.current === code) {
+      manualAnalysisCodeRef.current = '';
+      return;
+    }
     const controller = new AbortController();
     const requestId = ++analysisRequestRef.current;
     analysisAbortRef.current = controller;
@@ -452,7 +522,6 @@ export default function App() {
 
  const handleModelSwitch = useCallback((model) => {
     setSelectedModel(model);
-    setModelName(model);
     fetch('/api/model/switch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -463,6 +532,7 @@ export default function App() {
   const doAnalyze = useCallback((c) => {
     const targetCode = c || code;
     if (!targetCode) return;
+    manualAnalysisCodeRef.current = targetCode;
     analysisAbortRef.current?.abort();
     const controller = new AbortController();
     const requestId = ++analysisRequestRef.current;
@@ -525,12 +595,33 @@ export default function App() {
       {/* Body */}
       <div className="main-content">
         <div className="sidebar">
-          <Sidebar code={code} setCode={setCode} tCode={code} setTCode={setCode} action={action} setAction={setAction} onAnalyze={doAnalyze} aiOnline={aiOnline} marketState={marketState} signalMode={signalMode} setSignalMode={setSignalMode} />
+          <Sidebar
+            code={code}
+            setCode={selectCode}
+            tCode={code}
+            setTCode={selectCode}
+            action={action}
+            setAction={setAction}
+            onAnalyze={doAnalyze}
+            aiOnline={aiOnline}
+            marketState={marketState}
+            setSignalMode={setSignalMode}
+            hotStocks={hotStocks}
+            hotLoading={hotLoading}
+          />
         </div>
 
         <div className="content">
           {/* Detailed stock dashboard — always visible above the chart */}
-          {code && <StockInfoCard code={code} onReady={handleStockReady} />}
+          {code && (
+            <StockInfoCard
+              code={code}
+              stock={stockSnapshot.code === code ? stockSnapshot.stock : null}
+              indicators={stockSnapshot.code === code ? stockSnapshot.indicators : null}
+              loading={stockSnapshot.code !== code || stockSnapshot.loading}
+              error={stockSnapshot.code === code ? stockSnapshot.error : ''}
+            />
+          )}
 
           {/* Inline AI analyzing badge — non-blocking */}
           {loading && (
@@ -562,7 +653,11 @@ export default function App() {
                 <RulePopover anchorRect={ruleAnchor} onClose={() => setRuleVisible(false)} />
               )}
               <div className="card-body kline-body">
-                <StockChart code={code} />
+                <StockChart
+                  code={code}
+                  dailyData={stockSnapshot.code === code ? stockSnapshot.history : null}
+                  dailyLoading={stockSnapshot.code !== code || stockSnapshot.loading}
+                />
               </div>
             </div>
           )}
@@ -585,7 +680,7 @@ export default function App() {
                   正在重新分析，保留上次结果...
                 </div>
               )}
-              <AnalysisResult data={analysisData} code={code} />
+              <AnalysisResult data={analysisData} />
             </div>
           ) : !loading && (
             <div className="empty">
@@ -603,7 +698,7 @@ export default function App() {
         </div>
 
         <div className="right-panel">
-          <RightPanel onSelect={code => { setCode(code); setAction("sell"); }} />
+          <RightPanel onSelect={code => { selectCode(code); setAction("sell"); }} />
         </div>
 
         {/* 沈万三设置弹窗 */}
@@ -638,7 +733,7 @@ export default function App() {
                     if (botModelPending === botModel) return;
                     setBotSaving(true);
                     try {
-                      await setBotModel(botModelPending);
+                      await persistBotModel(botModelPending);
                       setBotModel(botModelPending);
                       setBotSettingsOpen(false);
                     } catch(e) {

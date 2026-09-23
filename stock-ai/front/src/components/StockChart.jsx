@@ -27,25 +27,42 @@ function xLabel(dateStr, freq) {
   return dateStr.slice(11, 16);                         // HH:MM
 }
 
-export default function StockChart({ code }) {
+export default function StockChart({ code, dailyData, dailyLoading }) {
   const [freq, setFreq] = useState('day');
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [remoteState, setRemoteState] = useState({
+    code: '',
+    freq: '',
+    data: null,
+    loading: false,
+  });
 
   useEffect(() => {
-    if (!code) return;
-    setLoading(true);
-    setData(null);
-    getHistory(code, 240, freq)
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => { setData(null); setLoading(false); });
+    if (!code || freq === 'day') return;
+    const controller = new AbortController();
+    let active = true;
+    setRemoteState({ code, freq, data: null, loading: true });
+    getHistory(code, 240, freq, controller.signal)
+      .then(data => {
+        if (!active) return;
+        setRemoteState({ code, freq, data, loading: false });
+      })
+      .catch(() => {
+        if (!active) return;
+        setRemoteState({ code, freq, data: null, loading: false });
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [code, freq]);
+
+  const remoteMatches = remoteState.code === code && remoteState.freq === freq;
+  const data = freq === 'day' ? dailyData : (remoteMatches ? remoteState.data : null);
+  const loading = freq === 'day' ? dailyLoading : (!remoteMatches || remoteState.loading);
 
   // Determine date format for x-axis
   const dates = (data?.history || []).map(d => xLabel(d.date, freq));
   const closes = (data?.history || []).map(d => d.close);
-  const highs = (data?.history || []).map(d => d.high);
-  const lows = (data?.history || []).map(d => d.low);
   const volumes = (data?.history || []).map(d => d.volume);
   const rawDates = (data?.history || []).map(d => d.date);
 
