@@ -35,7 +35,7 @@ from strategy_store import (
     get_effective_params, get_research_overlay,
     get_account_peak, update_account_peak, get_circuit_break_until, set_circuit_break,
     close_attribution_for_code,
-    get_volatility_adjusted_stop_take, get_volatility_position_size,
+    get_volatility_position_size,
 )
 from industry_map import sector_concentration_ok
 from iteration_engine import run_iteration, iteration_running
@@ -427,9 +427,11 @@ def _ai_re_evaluate_position(client, broker, code: str, pos, params, atr_pct: fl
                 f"MACD状态={ind.get('MACD状态','?')} KDJ状态={ind.get('KDJ状态','?')}"
             )
         atr_str = f"{vol.get('atr_pct', 0)*100:.2f}%" if vol else "?"
+        stop_loss, take_profit = get_stop_take(stype, params)
         prompt = f"""复评持仓 {code}（{stype}，入场 {entry:.2f}，现价 {cur_p:.2f}，浮盈 {pnl_pct*100:+.1f}%）
 ATR%={atr_str}。指标: {ind_brief}
-波动率自适应止损线={params.vol_stop_k*atr_pct*100 if atr_pct else '?'}%。
+执行止损线={stop_loss*100:.1f}% / 止盈线={take_profit*100:.1f}%。
+ATR% 仅用于风险画像和仓位约束，不覆盖当前周期的执行阈值。
 请判断：这只票的趋势是否被破坏？只回答 JSON：{{"action":"sell|hold","reason":"一句话原因"}}"""
         text = client.chat([
             {"role": "system", "content": "你是严格量化交易员，专注判断趋势是否破坏。"},
@@ -544,11 +546,10 @@ def check_positions(client, broker):
             print(f"  [{code}] T+1闸口 跳过：今日买入当日不可卖（持{vol}股，需持有≥1日才能卖）")
             continue
         pnl_pct = (cur_p - entry) / entry
-        # ── 波动率画像：用 ATR% 反推红线（替代/收紧人工阈值） ──
+        # ── 波动率画像用于仓位和复评；实际止损止盈按周期固定参数执行 ──
         vol_prof = calc_volatility_profile(get_stock_history(code, days=30))
         atr_pct = (vol_prof or {}).get("atr_pct") or 0.0
-        sl_fixed, tp_fixed = get_stop_take(stype, params)
-        sl, tp = get_volatility_adjusted_stop_take(stype, params, atr_pct)
+        sl, tp = get_stop_take(stype, params)
         # ── trailing peak：先查内存 → 缺失时从 SQLite 加载 → 写回 ──
         peak = _trailing_peak.get(code)
         if peak is None:
@@ -582,11 +583,8 @@ def check_positions(client, broker):
                 print(f"  [{code}] 卖出失败: {e}")
             return False
 
-        # 标记用了波动率红线时，在 reason 里追加说明（便于审计）
-        if atr_pct > 0 and abs(sl - sl_fixed) > 1e-9:
-            tag = f" vol红线{sr(sl*100)}% ATR%={atr_pct*100:.1f}%"
-        else:
-            tag = ""
+        # ATR% 只保留为审计上下文，实际阈值始终来自当前周期参数
+        tag = f" ATR%={atr_pct*100:.1f}%" if atr_pct > 0 else ""
 
         if pnl_pct <= sl:
             reason = f"触发止损（{pnl_pct*100:.1f}%）[{stype}]{tag}"
@@ -619,9 +617,9 @@ def check_positions(client, broker):
                     _do_sell(reason)
                 else:
                     tail = f" streak={streak}/{threshold}" if decision == "sell" else ""
-                    print(f"  [{code}] 持仓[{stype}] 成本¥{entry:.2f} 现价¥{cur_p:.2f} {pnl_pct*100:+.1f}% vol红线 {sl*100:.1f}%/{tp*100:.1f}% AI: {decision}{tail}")
+                    print(f"  [{code}] 持仓[{stype}] 成本¥{entry:.2f} 现价¥{cur_p:.2f} {pnl_pct*100:+.1f}% 固定线 {sl*100:.1f}%/{tp*100:.1f}% AI: {decision}{tail}")
             else:
-                print(f"  [{code}] 持仓[{stype}] 成本¥{entry:.2f} 现价¥{cur_p:.2f} {pnl_pct*100:+.1f}% vol红线 {sl*100:.1f}%/{tp*100:.1f}%")
+                print(f"  [{code}] 持仓[{stype}] 成本¥{entry:.2f} 现价¥{cur_p:.2f} {pnl_pct*100:+.1f}% 固定线 {sl*100:.1f}%/{tp*100:.1f}%")
     # ── 止损/止盈/回撤处置完成后，再处理存量的超限仓位（只减不增） ──
     try:
         if rebalance_oversized_positions(broker, params, skip_codes=sold_codes):
@@ -711,18 +709,19 @@ def analyze_and_decide(client, broker, code):
             params = get_effective_params()
             policy_hint = _policy_overlay_text()
             policy_block = f"\n{policy_hint}\n" if policy_hint else ""
-            # ── 波动率画像：让 AI 知道自动红线和仓位上限 ──
+            # ── 波动率画像：ATR 约束仓位，周期固定阈值约束止损止盈 ──
             vol_prof = calc_volatility_profile(get_stock_history(code, days=30))
             atr_pct = (vol_prof or {}).get("atr_pct") or 0.0
-            vol_sl, vol_tp = get_volatility_adjusted_stop_take(horizon_label, params, atr_pct)
+            fixed_sl, fixed_tp = get_stop_take(horizon_label, params)
             vol_pos = get_volatility_position_size(params, atr_pct)
             vol_block = (
-                f"\n波动率画像（系统自适应红线）：\n"
+                f"\n周期执行阈值：\n"
+                f"- 止损线 {fixed_sl*100:.1f}% / 止盈线 {fixed_tp*100:.1f}%\n"
+                f"\n波动率画像：\n"
                 f"- ATR%={atr_pct*100:.2f}%（近 20 日日均振幅）\n"
-                f"- 自动止损线 {vol_sl*100:.1f}% / 自动止盈线 {vol_tp*100:.1f}%（基于 ATR%，会覆盖固定阈值）\n"
-                f"- 单票仓位上限 {vol_pos*100:.1f}%（高波动 → 小仓位）\n"
+                f"- 单票仓位上限 {vol_pos*100:.1f}%（ATR 只约束仓位，不覆盖周期阈值）\n"
                 if atr_pct > 0 else
-                "\n波动率画像缺失，沿用固定红线。\n"
+                "\n波动率画像缺失，沿用周期固定阈值。\n"
             )
             prompt = f"""股票：{stock.get('股票名', code)}（{code}）
 当前价：{stock['最新价']} 涨跌幅：{stock['涨跌幅']:+.2f}%

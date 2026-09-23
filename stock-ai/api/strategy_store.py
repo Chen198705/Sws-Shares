@@ -42,8 +42,8 @@ class StrategyParams:
     short_trailing_drawdown: float = 0.03
     mid_trailing_activate: float = 0.06
     mid_trailing_drawdown: float = 0.03
-    # ---- 波动率自适应（自动红线，替代/覆盖人工阈值） ----
-    # 止损 = max(策略红线, -vol_stop_k * ATR%)；止盈 = max(策略红线, vol_take_k * ATR%)
+    # ---- 波动率自适应（风险画像；不覆盖周期止损止盈） ----
+    # 止损参考 = max(策略红线, -vol_stop_k * ATR%)；止盈参考 = max(策略红线, vol_take_k * ATR%)
     # 仓位上限 = clip(vol_position_k / ATR%, vol_position_floor, vol_position_ceiling)
     vol_stop_k: float = 2.5           # 止损距离 = k 倍 ATR%（与日内波动成正比）
     vol_take_k: float = 4.0           # 止盈距离 = k 倍 ATR%（让高波动股能跑得更远）
