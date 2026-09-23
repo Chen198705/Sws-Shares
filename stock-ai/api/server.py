@@ -12,6 +12,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Route, Mount
 from starlette.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.concurrency import run_in_threadpool
 import uvicorn, json
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -26,6 +27,7 @@ from strategy_store import get_effective_params
 from config import OLLAMA_BASE_URL, OLLAMA_API_KEY, OLLAMA_MODEL
 from config import EXTRA_LLM_MODELS
 from config import HIDE_LLM_MODELS
+import market_calendar
 
 
 _HEALTH_CACHE_TTL = 5.0
@@ -34,6 +36,7 @@ _health_cache = {"expires": 0.0, "payload": None}
 _health_cache_lock = threading.Lock()
 _models_cache = {"expires": 0.0, "models": None}
 _models_cache_lock = threading.Lock()
+_analyze_semaphore = asyncio.Semaphore(1)
 
 
 class SafeJSONResponse(JSONResponse):
@@ -49,24 +52,19 @@ class SafeJSONResponse(JSONResponse):
 def is_market_open():
     import datetime
     now = datetime.datetime.now()
-    weekday = now.weekday()
     time_str = now.strftime("%H%M")
-    is_weekend = weekday >= 5
-    is_trading_hours = ("0930" <= time_str <= "1130") or ("1300" <= time_str <= "1500")
-    is_open = not is_weekend and is_trading_hours
-    if is_open:
+    trading_day = market_calendar.is_trading_day(now.date())
+    in_hours = ("0930" <= time_str <= "1130") or ("1300" <= time_str <= "1500")
+    if trading_day and in_hours:
         return True, "交易中"
-    elif is_weekend:
-        next_day = now + datetime.timedelta(days=1)
-        if next_day.weekday() == 6:
-            next_day += datetime.timedelta(days=1)
-        return False, f"休市中 · 下个交易日 {next_day.strftime('%m/%d %A')}"
-    elif time_str < "0930":
+    if trading_day and time_str < "0930":
         return False, "等待开盘 · 09:30 开始交易"
-    elif time_str < "1300":
+    if trading_day and time_str < "1300":
         return False, "午间休市 · 13:00 恢复交易"
-    else:
+    if trading_day:
         return False, "今日已收盘"
+    next_day = market_calendar.next_trading_day(now.date())
+    return False, f"休市中 · 下个交易日 {next_day.strftime('%m/%d %A')}"
 
 
 def serialize_positions(positions):
@@ -164,29 +162,63 @@ async def market_status(request):
 
 async def indices(request):
     try:
-        return SafeJSONResponse(get_all_indices())
+        return SafeJSONResponse(await run_in_threadpool(get_all_indices))
     except Exception as e:
         return SafeJSONResponse({"error": str(e)}, status_code=500)
 
 async def stock(request):
     code = request.path_params.get("code", "")
     try:
-        return SafeJSONResponse(get_stock_realtime(code))
+        return SafeJSONResponse(await run_in_threadpool(get_stock_realtime, code))
     except Exception as e:
         return SafeJSONResponse({"error": str(e)}, status_code=500)
+
+
+def _history_payload_sync(code: str, days: int, freq: str):
+    df = get_stock_history(code, days, freq)
+    if df is None or df.empty:
+        return {"error": "数据不足"}, 400
+    ind = calc_indicators(df)
+    return {
+        "history": df[["date", "open", "high", "low", "close", "volume"]].to_dict(orient="records"),
+        "indicators": ind,
+    }, 200
+
 
 async def history(request):
     code = request.path_params.get("code", "")
     days = int(request.query_params.get("days", 240))
     freq = request.query_params.get("freq", "day")
     try:
-        df = get_stock_history(code, days, freq)
-        ind = calc_indicators(df)
-        if df is None or df.empty:
-            return SafeJSONResponse({"error": "数据不足"}, status_code=400)
-        return SafeJSONResponse({"history": df[["date","open","high","low","close","volume"]].to_dict(orient="records"), "indicators": ind})
+        payload, status_code = await run_in_threadpool(_history_payload_sync, code, days, freq)
+        return SafeJSONResponse(payload, status_code=status_code)
     except Exception as e:
         return SafeJSONResponse({"error": str(e)}, status_code=500)
+
+
+def _analyze_payload_sync(code: str):
+    stock_data = get_stock_realtime(code)
+    if "错误" in stock_data:
+        return {"error": stock_data["错误"]}, 400
+    df = get_stock_history(code)
+    ind = calc_indicators(df)
+    avg_pct = 0
+    try:
+        idx = get_all_indices()
+        vals = [d.get("涨跌幅", 0) for d in idx.values() if "错误" not in d]
+        avg_pct = sum(vals) / max(len(vals), 1)
+    except Exception:
+        pass
+    analysis_text, action, used_ai, horizon = analyze_with_fallback(stock_data, ind, avg_pct)
+    return {
+        "analysis": analysis_text,
+        "action": action,
+        "used_ai": used_ai,
+        "horizon": horizon,
+        "stock": stock_data,
+        "indicators": ind,
+    }, 200
+
 
 async def analyze(request):
     try:
@@ -197,105 +229,103 @@ async def analyze(request):
     if not code:
         return SafeJSONResponse({"error": "股票代码不能为空"}, status_code=400)
     try:
-        stock_data = get_stock_realtime(code)
-        if "错误" in stock_data:
-            return SafeJSONResponse({"error": stock_data["错误"]}, status_code=400)
-        df = get_stock_history(code)
-        ind = calc_indicators(df)
-        avg_pct = 0
-        try:
-            idx = get_all_indices()
-            vals = [d.get("涨跌幅", 0) for d in idx.values() if "错误" not in d]
-            avg_pct = sum(vals) / max(len(vals), 1)
-        except:
-            pass
-        analysis_text, action, used_ai, horizon = analyze_with_fallback(stock_data, ind, avg_pct)
-        return SafeJSONResponse({
-            "analysis": analysis_text, "action": action, "used_ai": used_ai, "horizon": horizon,
-            "stock": stock_data, "indicators": ind,
-        })
+        async with _analyze_semaphore:
+            payload, status_code = await run_in_threadpool(_analyze_payload_sync, code)
+        return SafeJSONResponse(payload, status_code=status_code)
     except Exception as e:
         return SafeJSONResponse({"error": str(e)}, status_code=500)
+
+def _serialize_order(order):
+    return {
+        "id": order.order_id,
+        "code": order.stock_code,
+        "direction": order.direction,
+        "price": order.price,
+        "volume": order.volume,
+        "status": order.status,
+        "filled_price": getattr(order, "filled_price", order.price),
+        "stock_name": getattr(order, "stock_name", ""),
+        "pnl": getattr(order, "pnl", 0),
+        "horizon": getattr(order, "horizon", "medium"),
+        "time": str(order.created_at) if order.created_at else "",
+    }
+
+
+def _portfolio_payload_sync():
+    status = get_trading_status()
+    status["positions"] = serialize_positions(status.get("positions", []))
+    status["recent_orders"] = [_serialize_order(o) for o in status.get("recent_orders", [])]
+    return status
+
 
 async def portfolio(request):
     try:
-        status = get_trading_status()
-        status["positions"] = serialize_positions(status.get("positions", []))
-        status["recent_orders"] = [
-            {"id": o.order_id, "code": o.stock_code, "direction": o.direction,
-             "price": o.price, "volume": o.volume, "status": o.status,
-             "filled_price": getattr(o, "filled_price", o.price),
-             "stock_name": getattr(o, "stock_name", ""),
-             "pnl": getattr(o, "pnl", 0),
-             "horizon": getattr(o, "horizon", "medium"),
-             "time": str(o.created_at) if o.created_at else ""}
-            for o in status.get("recent_orders", [])
-        ]
-        return SafeJSONResponse(status)
+        return SafeJSONResponse(await run_in_threadpool(_portfolio_payload_sync))
     except Exception as e:
         return SafeJSONResponse({"error": str(e)}, status_code=500)
 
+
+def _orders_payload_sync():
+    broker = get_broker()
+    return {"orders": [_serialize_order(o) for o in broker.get_orders(20)]}
+
+
 async def orders(request):
     try:
-        broker = get_broker()
-        return SafeJSONResponse({"orders": [
-            {"id": o.order_id, "code": o.stock_code, "direction": o.direction,
-             "price": o.price, "volume": o.volume, "status": o.status,
-             "filled_price": getattr(o, "filled_price", o.price),
-             "stock_name": getattr(o, "stock_name", ""),
-             "pnl": getattr(o, "pnl", 0),
-             "horizon": getattr(o, "horizon", "medium"),
-             "time": str(o.created_at) if o.created_at else ""}
-            for o in broker.get_orders(20)
-        ]})
+        return SafeJSONResponse(await run_in_threadpool(_orders_payload_sync))
     except Exception as e:
         return SafeJSONResponse({"error": str(e), "orders": []}, status_code=500)
 
+
+def _order_stats_payload_sync():
+    broker = get_broker()
+    all_orders = broker.get_orders(limit=100000)
+
+    def _filled_price(o):
+        fp = getattr(o, "filled_price", None)
+        return float(fp) if fp else float(o.price)
+
+    sell_filled = [o for o in all_orders if o.direction == "sell" and o.status == "filled"]
+    buy_filled = [o for o in all_orders if o.direction == "buy" and o.status == "filled"]
+
+    sell_pnl = [float(getattr(o, "pnl", 0) or 0) for o in sell_filled]
+    sell_profit = round(sum(p for p in sell_pnl if p > 0), 2)
+    sell_loss = round(sum(p for p in sell_pnl if p < 0), 2)
+    sell_net = round(sell_profit + sell_loss, 2)
+
+    buy_cost = round(sum(_filled_price(o) * o.volume for o in buy_filled), 2)
+
+    positions = broker.get_positions()
+    unreal = [float(getattr(p, "unrealized_pnl", 0) or 0) for p in positions]
+    unreal_profit = round(sum(p for p in unreal if p > 0), 2)
+    unreal_loss = round(sum(p for p in unreal if p < 0), 2)
+    unreal_net = round(unreal_profit + unreal_loss, 2)
+
+    cnt_all = len(all_orders)
+    cnt_buy = sum(1 for o in all_orders if o.direction == "buy")
+    cnt_sell = sum(1 for o in all_orders if o.direction == "sell")
+
+    return {
+        "counts": {"all": cnt_all, "buy": cnt_buy, "sell": cnt_sell},
+        "sell": {
+            "count": len(sell_filled),
+            "profit": sell_profit,
+            "loss": sell_loss,
+            "net": sell_net,
+        },
+        "buy": {
+            "count": len(buy_filled),
+            "cost": buy_cost,
+            "profit": unreal_profit,
+            "loss": unreal_loss,
+            "net": unreal_net,
+        },
+    }
+
+
 async def order_stats(request):
     try:
-        broker = get_broker()
-        all_orders = broker.get_orders(limit=100000)
-
-        def _filled_price(o):
-            fp = getattr(o, "filled_price", None)
-            return float(fp) if fp else float(o.price)
-
-        sell_filled = [o for o in all_orders if o.direction == "sell" and o.status == "filled"]
-        buy_filled = [o for o in all_orders if o.direction == "buy" and o.status == "filled"]
-
-        sell_pnl = [float(getattr(o, "pnl", 0) or 0) for o in sell_filled]
-        sell_profit = round(sum(p for p in sell_pnl if p > 0), 2)
-        sell_loss = round(sum(p for p in sell_pnl if p < 0), 2)
-        sell_net = round(sell_profit + sell_loss, 2)
-
-        buy_cost = round(sum(_filled_price(o) * o.volume for o in buy_filled), 2)
-
-        positions = broker.get_positions()
-        unreal = [float(getattr(p, "unrealized_pnl", 0) or 0) for p in positions]
-        unreal_profit = round(sum(p for p in unreal if p > 0), 2)
-        unreal_loss = round(sum(p for p in unreal if p < 0), 2)
-        unreal_net = round(unreal_profit + unreal_loss, 2)
-
-        cnt_all = len(all_orders)
-        cnt_buy = sum(1 for o in all_orders if o.direction == "buy")
-        cnt_sell = sum(1 for o in all_orders if o.direction == "sell")
-
-        return SafeJSONResponse({
-            "counts": {"all": cnt_all, "buy": cnt_buy, "sell": cnt_sell},
-            "sell": {
-                "count": len(sell_filled),
-                "profit": sell_profit,
-                "loss": sell_loss,
-                "net": sell_net,
-            },
-            "buy": {
-                "count": len(buy_filled),
-                "cost": buy_cost,
-                "profit": unreal_profit,
-                "loss": unreal_loss,
-                "net": unreal_net,
-            },
-        })
+        return SafeJSONResponse(await run_in_threadpool(_order_stats_payload_sync))
     except Exception as e:
         return SafeJSONResponse({"error": str(e)}, status_code=500)
 
@@ -308,30 +338,54 @@ async def order(request):
     if not market_open:
         return SafeJSONResponse({"success": False, "error": market_msg}, status_code=403)
     try:
-        broker = get_broker()
-        code = body.get("code", "").strip()
-        direction = body.get("direction", "buy")
-        volume = int(body.get("volume", 100))
-        stock = get_stock_realtime(code)
-        price = stock.get("最新价", 0)
-        if direction == "buy":
-            o = broker.buy(code, volume, price)
-            ok = o.status == "filled"
-            return SafeJSONResponse({"success": ok, "order": {"id": o.order_id, "code": o.stock_code, "direction": o.direction, "price": o.filled_price, "volume": o.volume, "status": o.status}})
-        else:
-            # ── T+1 闸口：T+0 买入当日不可卖 ──
-            available = broker.sellable_volume(code)
-            if available <= 0:
-                return SafeJSONResponse({"success": False, "error": f"T+1 锁定：{code} 当日买入（T+0），次日才能卖"}, status_code=409)
-            o = broker.sell(code, volume, price)
-            if o is None:
-                return SafeJSONResponse({"success": False, "error": f"可卖量不足（{available} 股），已自动截单"}, status_code=409)
-            ok = o.status == "filled"
-            return SafeJSONResponse({"success": ok, "order": {"id": o.order_id, "code": o.stock_code, "direction": o.direction, "price": o.filled_price, "volume": o.volume, "status": o.status}})
+        payload, status_code = await run_in_threadpool(_order_payload_sync, body)
+        return SafeJSONResponse(payload, status_code=status_code)
     except Exception as e:
         return SafeJSONResponse({"success": False, "error": str(e)}, status_code=500)
 
-async def reconcile(request):
+
+def _order_payload_sync(body):
+    broker = get_broker()
+    code = body.get("code", "").strip()
+    direction = body.get("direction", "buy")
+    volume = int(body.get("volume", 100))
+    stock = get_stock_realtime(code)
+    price = stock.get("最新价", 0)
+    if direction == "buy":
+        o = broker.buy(code, volume, price)
+        ok = o.status == "filled"
+        return {
+            "success": ok,
+            "order": {
+                "id": o.order_id,
+                "code": o.stock_code,
+                "direction": o.direction,
+                "price": o.filled_price,
+                "volume": o.volume,
+                "status": o.status,
+            },
+        }, 200
+
+    available = broker.sellable_volume(code)
+    if available <= 0:
+        return {"success": False, "error": f"T+1 锁定：{code} 当日买入（T+0），次日才能卖"}, 409
+    o = broker.sell(code, volume, price)
+    if o is None:
+        return {"success": False, "error": f"可卖量不足（{available} 股），已自动截单"}, 409
+    ok = o.status == "filled"
+    return {
+        "success": ok,
+        "order": {
+            "id": o.order_id,
+            "code": o.stock_code,
+            "direction": o.direction,
+            "price": o.filled_price,
+            "volume": o.volume,
+            "status": o.status,
+        },
+    }, 200
+
+def _reconcile_payload_sync():
     """
     账本对账端点：拆解 NAV 与初始资金之间的差额来源。
     恒等式：NAV + 累计手续费 = 初始资金 + 已实现盈亏 + 浮动盈亏
@@ -372,7 +426,7 @@ async def reconcile(request):
         lhs = nav + total_fees
         diff = round(lhs - rhs, 4)
 
-        return SafeJSONResponse({
+        return {
             "initial_cash": initial_cash,
             "cash": round(cash, 4),
             "market_value": round(market_value, 2),
@@ -402,9 +456,14 @@ async def reconcile(request):
                 "consistent": abs(diff) < 0.05,
             },
             "as_of": datetime.now().isoformat(),
-        })
+        }
     except Exception as e:
-        return SafeJSONResponse({"error": str(e)}, status_code=500)
+        return {"error": str(e)}
+
+
+async def reconcile(request):
+    payload = await run_in_threadpool(_reconcile_payload_sync)
+    return SafeJSONResponse(payload, status_code=500 if payload.get("error") else 200)
 
 def hot_stocks(request):
     import sqlite3
@@ -422,6 +481,16 @@ def hot_stocks(request):
     except Exception as e:
         return JSONResponse({"stocks": [], "error": str(e)})
 
+def _signal_payload_sync(code: str):
+    stock_data = get_stock_realtime(code)
+    if "错误" in stock_data:
+        return {"error": stock_data["错误"]}, 400
+    df = get_stock_history(code)
+    ind = calc_indicators(df)
+    rule_text, rule_action = rule_analyze(stock_data, ind, 0)
+    return {"text": rule_text, "action": rule_action, "period": "medium", "reason": rule_text}, 200
+
+
 async def signal(request):
     try:
         body = await request.json()
@@ -431,13 +500,8 @@ async def signal(request):
     if not code:
         return SafeJSONResponse({"error": "code empty"}, status_code=400)
     try:
-        stock_data = get_stock_realtime(code)
-        if "错误" in stock_data:
-            return SafeJSONResponse({"error": stock_data["错误"]}, status_code=400)
-        df = get_stock_history(code)
-        ind = calc_indicators(df)
-        rule_text, rule_action = rule_analyze(stock_data, ind, 0)
-        return SafeJSONResponse({"text": rule_text, "action": rule_action, "period": "medium", "reason": rule_text})
+        payload, status_code = await run_in_threadpool(_signal_payload_sync, code)
+        return SafeJSONResponse(payload, status_code=status_code)
     except Exception as e:
         return SafeJSONResponse({"error": str(e)}, status_code=500)
 
@@ -472,10 +536,9 @@ async def bot_model_set(request):
     return SafeJSONResponse({"ok": True, "model": model})
 
 
-async def strategy_params_get(request):
-    """返回前端交易规则弹窗所需的动态参数。"""
+def _strategy_params_payload_sync():
     params = get_effective_params()
-    return SafeJSONResponse({
+    return {
         "short_stop_loss": params.short_stop_loss,
         "short_take_profit": params.short_take_profit,
         "mid_stop_loss": params.mid_stop_loss,
@@ -488,11 +551,15 @@ async def strategy_params_get(request):
         "short_trailing_drawdown": params.short_trailing_drawdown,
         "mid_trailing_activate": params.mid_trailing_activate,
         "mid_trailing_drawdown": params.mid_trailing_drawdown,
-    })
+    }
 
 
-async def research_status(request):
-    """研究层只读状态：参数契约 + 平仓归因 + 策略汇总。"""
+async def strategy_params_get(request):
+    """返回前端交易规则弹窗所需的动态参数。"""
+    return SafeJSONResponse(await run_in_threadpool(_strategy_params_payload_sync))
+
+
+def _research_status_payload_sync():
     root = Path(__file__).resolve().parents[2]
     contract_path = root / "research" / "export" / "strategy_params.json"
     attribution_path = root / "research" / "attribution" / "reports" / "attribution.json"
@@ -506,7 +573,12 @@ async def research_status(request):
     except Exception:
         pass
     payload["overlay_active"] = bool(payload["contract"])
-    return SafeJSONResponse(payload)
+    return payload
+
+
+async def research_status(request):
+    """研究层只读状态：参数契约 + 平仓归因 + 策略汇总。"""
+    return SafeJSONResponse(await run_in_threadpool(_research_status_payload_sync))
 
 
 # ── 路由 ────────────────────────────────────────────────────────

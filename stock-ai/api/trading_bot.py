@@ -40,6 +40,7 @@ from strategy_store import (
 from industry_map import sector_concentration_ok
 from iteration_engine import run_iteration, iteration_running
 from market_scanner import scan_market, log_scan_result
+import market_calendar
 
 LOG_DIR = Path(__file__).parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
@@ -105,7 +106,8 @@ def log_scan(code, action, confidence, price, analysis, strategy_type="中线", 
 
 
 def is_trading_day():
-    return datetime.now().weekday() < 5
+    # 用 JQData 权威交易日历，避免工作日节假日（中秋/国庆）被误判为交易日
+    return market_calendar.is_trading_day()
 
 def is_trading_hours():
     t = datetime.now().strftime("%H%M")
@@ -113,22 +115,17 @@ def is_trading_hours():
 
 def seconds_to_open():
     now = datetime.now()
-    if now.weekday() >= 5:
-        # 周末直接跳到下一交易日 09:30，避免 13:00-15:00 字符串区间误判返回 0 秒
-        days_ahead = 7 - now.weekday()  # 周六=2，周日=1
-        target = (now + timedelta(days=days_ahead)).replace(hour=9, minute=30, second=0, microsecond=0)
-        return max(0, int((target - now).total_seconds()))
     t = now.strftime("%H%M")
     if "0930" <= t <= "1130" or "1300" <= t <= "1500":
         return 0
-    elif t < "0930":
+    if is_trading_day() and t < "0930":
         target = now.replace(hour=9, minute=30, second=0)
-    elif t < "1300":
+    elif is_trading_day() and t < "1300":
         target = now.replace(hour=13, minute=0, second=0)
     else:
-        target = now.replace(hour=9, minute=30, second=0) + timedelta(days=1)
-        while target.weekday() >= 5:
-            target += timedelta(days=1)
+        # 非交易日或收盘后：跳到下一个真实交易日的 09:30
+        nxt = market_calendar.next_trading_day(now.date())
+        target = datetime.combine(nxt, datetime.min.time()).replace(hour=9, minute=30)
     return max(0, int((target - now).total_seconds()))
 
 

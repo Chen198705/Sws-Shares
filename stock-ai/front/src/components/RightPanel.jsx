@@ -140,23 +140,36 @@ export default function RightPanel({ onSelect = () => {} }) {
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
+    async function loadCore() {
       try {
-        const [p, o, s] = await Promise.all([getPortfolio(), getOrders(), getOrderStats().catch(() => null)]);
-        const rc = await getReconcile().catch(() => null);
+        const [p, o] = await Promise.all([getPortfolio(), getOrders()]);
         if (!cancelled) {
           setPortfolio(p);
           setOrders(o?.orders || []);
-          setOrderStats(s);
-          setReconcile(rc);
           setError(null);
           setLastRefresh(new Date());
         }
       } catch (e) { if (!cancelled) setError(e.message); }
     }
-    load();
-    const t = setInterval(load, 15000);
-    return () => { cancelled = true; clearInterval(t); };
+    async function loadHeavy() {
+      const [s, rc] = await Promise.all([
+        getOrderStats().catch(() => null),
+        getReconcile().catch(() => null),
+      ]);
+      if (!cancelled) {
+        setOrderStats(s);
+        setReconcile(rc);
+      }
+    }
+    loadCore();
+    loadHeavy();
+    const coreTimer = setInterval(loadCore, 15000);
+    const heavyTimer = setInterval(loadHeavy, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(coreTimer);
+      clearInterval(heavyTimer);
+    };
   }, []);
 
   const bal = portfolio?.balance || {};

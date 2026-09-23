@@ -1,47 +1,138 @@
 """市场数据 - 腾讯行情 + Sina日K，无akshare依赖"""
+import copy
 import datetime, json
+import threading
+import time
 import requests
 import pandas as pd
 
 TX_HEADERS = {"Referer": "https://finance.qq.com", "User-Agent": "Mozilla/5.0"}
 SINA_HEADERS = {"Referer": "https://finance.sina.com.cn", "User-Agent": "Mozilla/5.0"}
 
-_http = requests.Session()
-_http.trust_env = False  # 行情源直连，不读系统/环境代理
+_http_local = threading.local()
+_cache = {}
+_cache_locks = {}
+_cache_guard = threading.Lock()
+
+
+def _http():
+    """每线程独立 Session，行情源直连且避免 requests.Session 并发复用。"""
+    session = getattr(_http_local, "session", None)
+    if session is None:
+        session = requests.Session()
+        session.trust_env = False
+        _http_local.session = session
+    return session
+
+
+def _clone_cache_value(value):
+    if isinstance(value, pd.DataFrame):
+        return value.copy(deep=True)
+    if isinstance(value, (dict, list)):
+        return copy.deepcopy(value)
+    return value
+
+
+def _cached_call(key, ttl: float, loader):
+    """短 TTL 缓存 + single-flight，避免并发请求重复打行情源。"""
+    now = time.monotonic()
+    with _cache_guard:
+        entry = _cache.get(key)
+        if entry and entry[0] > now:
+            return _clone_cache_value(entry[1])
+        lock = _cache_locks.setdefault(key, threading.Lock())
+
+    with lock:
+        now = time.monotonic()
+        with _cache_guard:
+            entry = _cache.get(key)
+            if entry and entry[0] > now:
+                return _clone_cache_value(entry[1])
+        value = loader()
+        with _cache_guard:
+            _cache[key] = (time.monotonic() + ttl, value)
+        return _clone_cache_value(value)
+
+
+def _fetch_quote_fields(symbols: list[str]) -> dict:
+    """一次腾讯批量请求返回 {symbol: fields}。"""
+    symbols = list(dict.fromkeys(symbols))
+    if not symbols:
+        return {}
+    r = _http().get(
+        "https://qt.gtimg.cn/q=" + ",".join(symbols),
+        headers=TX_HEADERS,
+        timeout=8,
+    )
+    raw = r.content.decode("gbk")
+    result = {}
+    for line in raw.split(";"):
+        if '="' not in line:
+            continue
+        key, payload = line.split('="', 1)
+        symbol = key.strip().removeprefix("v_")
+        result[symbol] = payload.rstrip('";').split("~")
+    return result
+
+
+def _fetch_quote_fields_cached(symbols: list[str]) -> dict:
+    symbols = list(dict.fromkeys(symbols))
+    key = ("quotes", tuple(sorted(symbols)))
+    return _cached_call(key, 2.0, lambda: _fetch_quote_fields(symbols))
+
+
+def _parse_stock_fields(code: str, fields: list[str]) -> dict:
+    if len(fields) < 40:
+        return {"代码": code, "错误": f"字段不足({len(fields)})"}
+    return {
+        "股票名": fields[1],
+        "代码": code,
+        "最新价": float(fields[3]),
+        "昨收": float(fields[4]),
+        "今开": float(fields[5]),
+        "最高": float(fields[33]),
+        "最低": float(fields[34]),
+        "成交量": float(fields[6] or 0),
+        "成交额": float(fields[37] or 0),
+        "涨跌额": float(fields[31]) if fields[31] else 0.0,
+        "涨跌幅": float(fields[32]) if fields[32] else 0.0,
+        "时间": fields[30],
+        "换手率": float(fields[38]) if fields[38] else 0.0,
+    }
 
 
 def _prefix(code: str) -> str:
     return "sh" if code.startswith(("6", "5", "9")) else "sz"
 
 
-def get_stock_realtime(code: str) -> dict:
-    """腾讯实时行情，含换手率"""
-    sym = f"{_prefix(code)}{code}"
+def get_stocks_realtime(codes: list[str]) -> dict:
+    """腾讯批量实时行情，含换手率。"""
+    normalized = []
+    for code in codes:
+        code = str(code or "").strip()
+        if code and code not in normalized:
+            normalized.append(code)
+    if not normalized:
+        return {}
+    symbol_to_code = {f"{_prefix(code)}{code}": code for code in normalized}
     try:
-        r = _http.get(f"https://qt.gtimg.cn/q={sym}", headers=TX_HEADERS, timeout=8)
-        raw = r.content.decode("gbk")
-        raw = raw.strip()
-        if '="";' in raw or raw.endswith('=""'):
-            return {"代码": code, "错误": f"未找到股票 {code}"}
-        data = raw.split('="')[1].rstrip('";')
-        f = data.split("~")
-        if len(f) < 40:
-            return {"代码": code, "错误": f"字段不足({len(f)})"}
-        turnover = float(f[38]) if f[38] else 0.0  # 换手率%
-        vol = float(f[6])         # 成交量（手）
-        amount = float(f[37])    # 成交额（元）
-        return {
-            "股票名": f[1], "代码": code,
-            "最新价": float(f[3]), "昨收": float(f[4]), "今开": float(f[5]),
-            "最高": float(f[33]), "最低": float(f[34]),
-            "成交量": vol, "成交额": amount,
-            "涨跌额": float(f[31]) if f[31] else 0.0,
-            "涨跌幅": float(f[32]) if f[31] else 0.0,
-            "时间": f[30],
-            "换手率": turnover,
-        }
+        fields_by_symbol = _fetch_quote_fields_cached(list(symbol_to_code))
     except Exception as e:
-        return {"代码": code, "错误": str(e)}
+        return {code: {"代码": code, "错误": str(e)} for code in normalized}
+
+    result = {}
+    for symbol, code in symbol_to_code.items():
+        fields = fields_by_symbol.get(symbol, [])
+        try:
+            result[code] = _parse_stock_fields(code, fields)
+        except Exception as e:
+            result[code] = {"代码": code, "错误": str(e)}
+    return result
+
+
+def get_stock_realtime(code: str) -> dict:
+    """腾讯实时行情（单只；底层复用批量缓存）。"""
+    return get_stocks_realtime([code]).get(code, {"代码": code, "错误": "未找到股票"})
 
 
 def get_all_index_realtime() -> dict:
@@ -49,29 +140,24 @@ def get_all_index_realtime() -> dict:
         "上证指数": "sh000001", "深证成指": "sz399001",
         "创业板指": "sz399006", "沪深300": "sh000300",
     }
+    try:
+        fields_by_symbol = _fetch_quote_fields_cached(list(INDEX_CODES.values()))
+    except Exception:
+        fields_by_symbol = {}
     result = {}
-    for name, code in INDEX_CODES.items():
-        sym = code
-        try:
-            r = _http.get(f"https://qt.gtimg.cn/q={sym}", headers=TX_HEADERS, timeout=8)
-            raw = r.content.decode("gbk")
-            raw = raw.strip()
-            data = raw.split('="')[1].rstrip('";')
-            f = data.split("~")
-            if len(f) > 32:
-                result[name] = {
-                    "最新价": float(f[3]),
-                    "涨跌幅": float(f[32]) if f[31] else 0.0,
-                }
-        except Exception:
-            result[name] = {"最新价": 0, "涨跌幅": 0, "错误": "获取失败"}
-    for name in INDEX_CODES:
-        if name not in result:
+    for name, symbol in INDEX_CODES.items():
+        fields = fields_by_symbol.get(symbol, [])
+        if len(fields) > 32:
+            result[name] = {
+                "最新价": float(fields[3]),
+                "涨跌幅": float(fields[32]) if fields[32] else 0.0,
+            }
+        else:
             result[name] = {"最新价": 0, "涨跌幅": 0, "错误": "获取失败"}
     return result
 
 
-def get_stock_history(code: str, days: int = 60, freq: str = 'day') -> pd.DataFrame:
+def _get_stock_history_uncached(code: str, days: int = 60, freq: str = 'day') -> pd.DataFrame:
     sym = f"{_prefix(code)}{code}"
     url = 'https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData'
     SCALE_MAP = {'5m': 5, '15m': 15, '30m': 30, '60m': 60}
@@ -80,7 +166,7 @@ def get_stock_history(code: str, days: int = 60, freq: str = 'day') -> pd.DataFr
     if freq in ('week', 'month'):
         params = {'symbol': sym, 'scale': 240, 'ma': 'no', 'datalen': max(days * 5, 600)}
         try:
-            r = _http.get(url, params=params, headers=SINA_HEADERS, timeout=10)
+            r = _http().get(url, params=params, headers=SINA_HEADERS, timeout=10)
             raw = r.json()
             if not raw:
                 return pd.DataFrame()
@@ -112,7 +198,7 @@ def get_stock_history(code: str, days: int = 60, freq: str = 'day') -> pd.DataFr
     datalen = DLEN_MAP.get(freq, days + 5)
     params = {'symbol': sym, 'scale': scale, 'ma': 'no', 'datalen': datalen}
     try:
-        r = _http.get(url, params=params, headers=SINA_HEADERS, timeout=10)
+        r = _http().get(url, params=params, headers=SINA_HEADERS, timeout=10)
         data = r.json()
         if not data:
             return pd.DataFrame()
@@ -127,29 +213,19 @@ def get_stock_history(code: str, days: int = 60, freq: str = 'day') -> pd.DataFr
         return df.tail(days).reset_index(drop=True)
     except Exception:
         return pd.DataFrame()
-        df = pd.DataFrame(data)
-        if 'day' in df.columns:
-            df.rename(columns={'day': 'date'}, inplace=True)
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-        if not df.empty:
-            df['turnover_rate'] = 0.0
-        return df.tail(days).reset_index(drop=True)
-    except Exception:
-        return pd.DataFrame()
-        df = pd.DataFrame(data)
-        df.columns = ["date", "open", "high", "low", "close", "volume"]
-        for col in ["open", "high", "low", "close", "volume"]:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-        # 换手率通过腾讯日K补齐（最后一条）
-        turnover = get_stock_realtime(code).get("换手率", 0.0)
-        if not df.empty:
-            df["turnover_rate"] = 0.0
-            df.iloc[-1, df.columns.get_loc("turnover_rate")] = turnover
-        return df.tail(days).reset_index(drop=True)
-    except Exception:
-        return pd.DataFrame()
+
+
+def get_stock_history(code: str, days: int = 60, freq: str = 'day', adjust: str = "") -> pd.DataFrame:
+    """Sina K线；短线缓存 5 秒、日/周/月缓存 15 秒并做 single-flight。"""
+    days = int(days)
+    freq = freq or "day"
+    ttl = 5.0 if freq in ("5m", "15m", "30m", "60m") else 15.0
+    key = ("history", code, days, freq, adjust)
+    return _cached_call(
+        key,
+        ttl,
+        lambda: _get_stock_history_uncached(code, days, freq),
+    )
 
 
 def calc_indicators(df: pd.DataFrame) -> dict:

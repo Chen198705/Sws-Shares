@@ -265,13 +265,14 @@ class SimulationBroker(BrokerAdapter):
         self._conn.commit()
 
     def get_positions(self) -> list[Position]:
-        from market_data import get_stock_realtime
+        from market_data import get_stocks_realtime
         positions = []
         rows = self._conn.execute(
             "SELECT stock_code, stock_name, volume, avg_cost, COALESCE(horizon, 'medium') FROM positions WHERE volume > 0"
         ).fetchall()
+        quotes = get_stocks_realtime([row[0] for row in rows])
         for stock_code, stock_name, volume, avg_cost, horizon in rows:
-            stock = get_stock_realtime(stock_code)
+            stock = quotes.get(stock_code, {})
             cur_price = stock.get("最新价", avg_cost)
             stock_name = stock.get("股票名", stock_name)
             prev_close = float(stock.get("昨收", 0.0) or 0.0)

@@ -4,7 +4,7 @@ import IndexBar from './components/IndexBar';
 import Sidebar from './components/Sidebar';
 import StockChart from './components/StockChart';
 import RightPanel from './components/RightPanel';
-import { analyzeStock, getStock, getHistory, getMarketStatus, getBotModel, setBotModel, getHotStocks, getStrategyParams } from './api';
+import { analyzeStock, getStock, getHistory, setBotModel, getHotStocks, getStrategyParams } from './api';
 
 // ─── Logo SVG ───
 function LogoMark() {
@@ -272,23 +272,31 @@ function AnalysisResult({ data, code }) {
 }
 
 // ─── Stock Info Card (auto-loads on code change) ───
-function StockInfoCard({ code }) {
+function StockInfoCard({ code, onReady }) {
   const [stock, setStock] = useState(null);
   const [ind, setInd] = useState(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     if (!code) return;
+    const controller = new AbortController();
+    let active = true;
     setLoading(true);
     setInd(null);
     Promise.allSettled([
-      getStock(code),
-      getHistory(code, 240, 'day'),
+      getStock(code, controller.signal),
+      getHistory(code, 240, 'day', controller.signal),
     ]).then(([stockRes, histRes]) => {
+      if (!active) return;
       if (stockRes.status === 'fulfilled') setStock(stockRes.value);
       if (histRes.status === 'fulfilled') setInd(histRes.value.indicators || null);
       setLoading(false);
+      onReady && onReady(code);
     });
-  }, [code]);
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [code, onReady]);
   if (loading || !stock) return <div className="card"><div className="card-body"><div className="loading"><div className="spinner"/>加载行情...</div></div></div>;
   if (stock.错误) return null;
   const pct = stock.涨跌幅 || 0;
@@ -331,6 +339,9 @@ function StockInfoCard({ code }) {
 export default function App() {
   const [code, setCode] = useState('');
   const codeRef = useRef('');
+  const analysisAbortRef = useRef(null);
+  const analysisRequestRef = useRef(0);
+  const [readyCode, setReadyCode] = useState('');
   const [analysisData, setAnalysisData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [signalMode, setSignalMode] = useState(false); // block auto-analyze during signal toggle
@@ -346,6 +357,9 @@ export default function App() {
   const [botSaving, setBotSaving] = useState(false);
   const [action, setAction] = useState('buy');
   const [ruleAnchor, setRuleAnchor] = useState(null);
+  const handleStockReady = useCallback((readyStockCode) => {
+    setReadyCode(readyStockCode);
+  }, []);
 
   // Health check + market status
   useEffect(() => {
@@ -387,16 +401,33 @@ export default function App() {
  }, []);
 
 
-  // Auto-analyze when stock code changes
+  // 行情和日线先完成，再启动 AI 分析，避免首屏请求互相阻塞。
   useEffect(() => {
-    if (!code || signalMode) return;
-    setLoading(true);
-    setAnalysisData(null);
+    if (!code || readyCode !== code || signalMode) return;
+    const controller = new AbortController();
+    const requestId = ++analysisRequestRef.current;
+    analysisAbortRef.current = controller;
     const timer = setTimeout(() => {
-      analyzeStock(code).then(d => { setAnalysisData(d); setLoading(false); }).catch(e => { setAnalysisData({ error: e.message }); setLoading(false); });
-    }, 800);
-    return () => clearTimeout(timer);
-  }, [code]);
+      setLoading(true);
+      setAnalysisData(null);
+      analyzeStock(code, controller.signal)
+        .then(d => {
+          if (requestId !== analysisRequestRef.current) return;
+          setAnalysisData(d);
+          setLoading(false);
+        })
+        .catch(e => {
+          if (requestId !== analysisRequestRef.current) return;
+          if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') return;
+          setAnalysisData({ error: e.message });
+          setLoading(false);
+        });
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [code, readyCode]);
 
  const handleModelSwitch = useCallback((model) => {
     setSelectedModel(model);
@@ -411,9 +442,24 @@ export default function App() {
   const doAnalyze = useCallback((c) => {
     const targetCode = c || code;
     if (!targetCode) return;
+    analysisAbortRef.current?.abort();
+    const controller = new AbortController();
+    const requestId = ++analysisRequestRef.current;
+    analysisAbortRef.current = controller;
     setLoading(true);
     setAnalysisData(null);
-    analyzeStock(targetCode).then(d => { setAnalysisData(d); setLoading(false); }).catch(e => { setAnalysisData({ error: e.message }); setLoading(false); });
+    analyzeStock(targetCode, controller.signal)
+      .then(d => {
+        if (requestId !== analysisRequestRef.current) return;
+        setAnalysisData(d);
+        setLoading(false);
+      })
+      .catch(e => {
+        if (requestId !== analysisRequestRef.current) return;
+        if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') return;
+        setAnalysisData({ error: e.message });
+        setLoading(false);
+      });
   }, [code]);
 
 
@@ -463,7 +509,7 @@ export default function App() {
 
         <div className="content">
           {/* Detailed stock dashboard — always visible above the chart */}
-          {code && <StockInfoCard code={code} />}
+          {code && <StockInfoCard code={code} onReady={handleStockReady} />}
 
           {/* Inline AI analyzing badge — non-blocking */}
           {loading && (
