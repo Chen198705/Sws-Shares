@@ -1,7 +1,10 @@
 import axios from 'axios';
 
+// 普通接口 20s；AI 分析要等本地模型换入显存 + 长文生成，给足到 240s，
+// 必须大于后端 fallback 链预算（AI_CHAIN_BUDGET，默认 180s）。
+const AI_TIMEOUT = Number(import.meta.env.VITE_AI_TIMEOUT || 240000);
 const api = axios.create({ baseURL: '/api', timeout: 20000 });
-const aiApi = axios.create({ baseURL: '/api', timeout: 120000 });
+const aiApi = axios.create({ baseURL: '/api', timeout: AI_TIMEOUT });
 
 export const getHistory = (code, days = 240, freq = 'day', signal) =>
   api.get(`/history/${code}?days=${days}&freq=${freq}`, { signal }).then(r => r.data);

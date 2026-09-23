@@ -24,11 +24,30 @@ _BOT_CONFIG_PATH = Path(__file__).parent / "bot_config.json"
 _DEFAULT_MODEL = "Qwen3.6-35B-A3B-4bit"  # hardcoded default
 
 def _get_bot_model():
-    if _BOT_CONFIG_PATH.exists():
-        return _json.loads(_BOT_CONFIG_PATH.read_text()).get("model", _DEFAULT_MODEL)
+    """读取 bot_config.json 的模型；文件缺失 / 半截 JSON 时回落到默认模型。"""
+    try:
+        if _BOT_CONFIG_PATH.exists():
+            model = _json.loads(_BOT_CONFIG_PATH.read_text()).get("model")
+            if model and model.strip():
+                return model.strip()
+    except Exception:
+        pass
     return _DEFAULT_MODEL
 
 BOT_MODEL = _get_bot_model()
+
+
+def sync_bot_model(client, current_config_model):
+    """每轮检查 bot_config.json，模型变化时热切换主模型。
+
+    返回当前生效的配置值。只比对配置文件（而不是 client.model），
+    避免 fallback 提升导致的来回切换。
+    """
+    desired = _get_bot_model()
+    if desired != current_config_model:
+        print(f"[模型切换] 配置变更 {current_config_model} → {desired}，热切换主模型")
+        client.set_model(desired)
+    return desired
 from strategy_store import (
     init_schema as init_strategy_schema, load_params,
     log_attribution, should_iterate, get_stop_take,
@@ -965,9 +984,9 @@ def startup_warmup(client, broker):
     print('[启动预热] 检查模型服务...')
     model_ok = client.is_alive()
     if model_ok:
-        print(f'[启动预热] 模型 ({BOT_MODEL}): 在线')
+        print(f'[启动预热] 模型 ({client.model}): 在线')
     else:
-        print(f'[启动预热] 模型 ({BOT_MODEL}): 离线 (跳过预热)')
+        print(f'[启动预热] 模型 ({client.model}): 离线 (跳过预热)')
 
     if net_ok and model_ok:
         # 默认对最近一次推荐股第1名做预热
@@ -992,7 +1011,8 @@ def startup_warmup(client, broker):
     return net_ok and model_ok
 
 def main_loop(stop_event):
-    client = OllamaClient(model=BOT_MODEL)
+    current_config_model = _get_bot_model()
+    client = OllamaClient(model=current_config_model)
     broker = get_broker()
     while not stop_event.is_set():
         if startup_warmup(client, broker):
@@ -1004,7 +1024,7 @@ def main_loop(stop_event):
             time.sleep(1)
     init_strategy_schema()
     params = load_params()
-    print(f"自动操盘机器人启动 · 模型: {BOT_MODEL}")
+    print(f"自动操盘机器人启动 · 模型: {client.model}")
     print("全市场主力资金扫描启动")
     print(f"短线止损{params.short_stop_loss*100:.0f}%止盈{params.short_take_profit*100:.0f}%  中线止损{params.mid_stop_loss*100:.0f}%止盈{params.mid_take_profit*100:.0f}%  长线止损{params.long_stop_loss*100:.0f}%止盈{params.long_take_profit*100:.0f}%")
     print(f"持仓检查每{POSITION_CHECK_INTERVAL//60}分钟 · 全市场选股每{MARKET_SCAN_INTERVAL//60}分钟")
@@ -1015,6 +1035,8 @@ def main_loop(stop_event):
     scan_rounds = MARKET_SCAN_INTERVAL // POSITION_CHECK_INTERVAL
     scan_round = 0  # 0 表示本轮执行全市场扫描
     while not stop_event.is_set():
+        # 每轮同步 Dashboard 的模型配置，切换后无需重启机器人进程
+        current_config_model = sync_bot_model(client, current_config_model)
         ts = datetime.now().strftime("%H:%M")
         if not is_trading_day():
             secs = seconds_to_open()

@@ -380,10 +380,16 @@ export default function App() {
     signalModeRef.current = active;
   }, []);
 
-  // Health check + market status
+  // 首屏加载顺序（与后端配合，避免加载期打爆 oMLX）：
+  //   阶段1 本地数据：市场状态 / 沈万三配置 / 推荐股（不打模型）
+  //   阶段2 行情数据：stock + history（由 code 副作用负责）
+  //   阶段3 模型相关：模型列表 + AI 健康探活（唯一会碰 oMLX 的两项）
+  //   阶段4 AI 分析：等行情就绪后再发，此时模型已被后端预热
+  // 阶段3 特意晚 800ms 起跑，不和行情首发挤在同一批请求里。
   useEffect(() => {
     let stopped = false;
     let healthTimer;
+    let aiPhaseTimer;
     const loadHealth = async () => {
       try {
         const r = await fetch('/api/health');
@@ -401,19 +407,27 @@ export default function App() {
         if (!stopped) scheduleHealth(delay);
       }, delay);
     };
-    scheduleHealth(0);
+    // 阶段1：本地接口，立即发
     fetch('/api/bot-model')
       .then(r => r.json())
       .then(d => { setBotModel(d.model || ''); setBotModelPending(d.model || ''); })
-      .catch(() => {});
-    fetch('/api/models')
-      .then(r => r.json())
-      .then(d => { setModels(d.models || []); setSelectedModel(d.current || ''); })
       .catch(() => {});
     fetch('/api/market-status')
       .then(r => r.json())
       .then(d => setMarketState({ open: d.open, message: d.message }))
       .catch(() => {});
+    // 阶段3：本地数据先落地，再拉模型列表并启动健康轮询
+    aiPhaseTimer = setTimeout(() => {
+      if (stopped) return;
+      fetch('/api/models')
+        .then(r => r.json())
+        .then(d => {
+          setModels(d.models || []);
+          setSelectedModel(prev => prev || d.current || '');
+        })
+        .catch(() => {});
+      scheduleHealth(0);
+    }, 800);
     const hotController = new AbortController();
     // Default query code: first stock in today's recommendation list.
     getHotStocks(hotController.signal)
@@ -441,6 +455,7 @@ export default function App() {
       stopped = true;
       clearInterval(t);
       clearTimeout(healthTimer);
+      clearTimeout(aiPhaseTimer);
       hotController.abort();
     };
  }, [selectCode]);
@@ -526,7 +541,14 @@ export default function App() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model }),
-    }).then(r => r.json()).then(d => { if (d.error) alert('切换失败: ' + d.error); }).catch(() => alert('切换失败'));
+    }).then(r => r.json()).then(d => {
+      if (d.error) { alert('切换失败: ' + d.error); return; }
+      // 后端把两处配置统一了：前端分析模型 = 沈万三默认模型，这里同步 UI 状态
+      const applied = d.model || model;
+      setSelectedModel(applied);
+      setBotModel(applied);
+      setBotModelPending(applied);
+    }).catch(() => alert('切换失败'));
   }, []);
 
   const doAnalyze = useCallback((c) => {
@@ -721,7 +743,7 @@ export default function App() {
                   {models.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
                 <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'12px'}}>
-                  切换后沈万三下次分析自动生效（已运行的分析不受影响）
+                  前端分析与沈万三共用该模型；沈万三每轮巡检自动热切换，无需重启
                 </div>
               </div>
               <div className="modal-footer">
@@ -735,6 +757,7 @@ export default function App() {
                     try {
                       await persistBotModel(botModelPending);
                       setBotModel(botModelPending);
+                      setSelectedModel(botModelPending); // 与顶部模型选择保持一致
                       setBotSettingsOpen(false);
                     } catch(e) {
                       alert('设置失败: ' + e.message);

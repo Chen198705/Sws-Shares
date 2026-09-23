@@ -32,11 +32,61 @@ _DEFAULT_FALLBACK_MODELS = (
 # 让热门 fallback（如 Qwen3.5-9B-MLX-4bit）成为首选，跳过对已知坏模型的重复探测。
 _PROBE_TTL = 30.0           # is_alive() 结果缓存秒数
 _PROBE_NEGATIVE_TTL = 3.0   # 探活失败缓存更短，服务恢复后快速改正状态
-_PROBE_TIMEOUT = 8          # 单模型探测超时（秒），自 15 缩到 8，减少探测链路
 _BAD_MODEL_COOLDOWN = 90.0  # 模型失败后多少秒内跳过（熔断时长）
 _BAD_MODEL_FAILURE_THRESHOLD = 2  # 连续失败次数才熔断，避免单次抖动误杀
-_MODEL_CALL_TIMEOUT = 75.0  # 单模型分析超时，容纳冷启动排队
-_MODEL_CHAIN_BUDGET = 105.0  # 整条 fallback 链的总预算，需小于前端 120s
+# 冷加载 / 上游换入期间的瞬时故障不算"模型坏了"，用更宽的阈值和更短的冷却，
+# 否则模型还在装载就被拉黑 90 秒，反而让后续分析直接失败。
+_BAD_MODEL_TRANSIENT_COOLDOWN = 30.0
+_BAD_MODEL_TRANSIENT_THRESHOLD = 4
+
+
+def _env_float(name: str, default: float) -> float:
+    """可调超时统一走环境变量，非法值回落默认，避免误配置把服务打死。"""
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+# 本地 oMLX 模型冷加载（换入显存 + 首次推理）可能需要 1-2 分钟，
+# 因此单模型超时给足；三个值都可用环境变量覆盖，不必改代码。
+# 约束：PROBE < MODEL_CALL < CHAIN_BUDGET < 前端 aiApi 超时。
+_PROBE_TIMEOUT = _env_float("AI_PROBE_TIMEOUT", 10.0)          # 单模型探测超时
+_MODEL_CALL_TIMEOUT = _env_float("AI_MODEL_TIMEOUT", 120.0)    # 单模型分析超时
+_MODEL_CHAIN_BUDGET = _env_float("AI_CHAIN_BUDGET", 180.0)     # 整条 fallback 链总预算
+
+# ── 瞬时故障重试 ──────────────────────────────────────────────
+# oMLX 网关在模型冷启动 / 换入换出时会偶发 502 "Upstream unreachable"，
+# 同一模型立刻重试一次通常就能成功。只在预算充足时重试，并且给后续
+# fallback 预留时间，避免重试把整条链的预算吃光导致本轮分析彻底失败。
+# 冷加载期间 oMLX 会连续返回 "upstream unreachable"，只重试一次往往还没换入完，
+# 因此允许在同一模型上多退避重试几次；每次仍受整条链预算约束。
+_RETRY_ON_TRANSIENT = int(_env_float("AI_TRANSIENT_RETRIES", 3))
+_RETRY_MIN_REMAINING = _env_float("AI_RETRY_MIN_REMAINING", 60.0)  # 重试后必须留给 fallback 的预算（秒）
+_RETRY_BACKOFF = _env_float("AI_RETRY_BACKOFF", 2.0)      # 首次退避（秒）
+_RETRY_BACKOFF_MAX = _env_float("AI_RETRY_BACKOFF_MAX", 8.0)  # 退避上限（秒）
+
+
+def _is_transient_error(msg: str) -> bool:
+    """5xx / 连接断开 / 上游不可达属于可立即重试的瞬时故障；4xx 不属于。"""
+    if "HTTP 4" in msg:
+        return False
+    markers = (
+        "HTTP 5",
+        "连接失败",
+        "upstream",
+        "incomplete chunked",
+        "ConnectionError",
+        "Timeout",
+        "ChunkedEncodingError",
+        "空 choices",
+        "响应非 JSON",
+    )
+    return any(m.lower() in msg.lower() for m in markers)
 
 logger = logging.getLogger(__name__)
 
@@ -145,14 +195,19 @@ class OllamaClient:
         available = {m.get("id") for m in data.get("data", []) if isinstance(m, dict)}
         return any(model in available for model in self._attempts())
 
-    def _mark_bad(self, model_name: str) -> None:
-        """累计失败次数，超过阈值才真正熔断（避免单次抖动误杀）。"""
+    def _mark_bad(self, model_name: str, transient: bool = False) -> None:
+        """累计失败次数，超过阈值才真正熔断（避免单次抖动误杀）。
+
+        transient=True 表示冷加载 / 上游换入类瞬时故障，阈值和冷却都更宽松。
+        """
+        threshold = _BAD_MODEL_TRANSIENT_THRESHOLD if transient else _BAD_MODEL_FAILURE_THRESHOLD
+        cooldown = _BAD_MODEL_TRANSIENT_COOLDOWN if transient else _BAD_MODEL_COOLDOWN
         with self._state_lock:
             streak = self._bad_streak.get(model_name, 0) + 1
             self._bad_streak[model_name] = streak
-            if streak >= _BAD_MODEL_FAILURE_THRESHOLD:
-                self._bad_models[model_name] = time.time() + _BAD_MODEL_COOLDOWN
-                print(f"[ai_client] 熔断 {model_name} {int(_BAD_MODEL_COOLDOWN)}s")
+            if streak >= threshold:
+                self._bad_models[model_name] = time.time() + cooldown
+                print(f"[ai_client] 熔断 {model_name} {int(cooldown)}s")
 
     def _mark_good(self, model_name: str) -> None:
         """成功的模型清零熔断计数，避免冷却累积。"""
@@ -237,11 +292,23 @@ class OllamaClient:
                 self._probe_inflight = False
         return result
 
+    def mark_alive(self, alive: bool = True) -> None:
+        """外部已经确认 oMLX 可达 / 不可达时直接写探活缓存。
+
+        模型列表接口和探活打的是同一个 /v1/models，首屏没必要打两次；
+        服务端拿到列表结果后调用这里，健康检查就能命中缓存，
+        少一次上游往返、也少一次冷启动窗口里的无谓阻塞。
+        """
+        with self._state_lock:
+            self._alive_cache_value = bool(alive)
+            self._alive_cache_until = time.time() + (_PROBE_TTL if alive else _PROBE_NEGATIVE_TTL)
+            self._alive_revision += 1
+
     def chat(self, messages, temperature=0.7, max_tokens=2048, timeout: float = _MODEL_CALL_TIMEOUT) -> str:
         """先主模型；失败按 fallback 链自动切换。成功后将 self.model 提升到可用模型。
 
         4xx 视为 prompt 问题（不消耗 fallback），立刻抛；
-        5xx / 连接错 / 上游错误 → 切下一个。
+        5xx / 连接错 / 上游错误 → 同模型重试一次，仍失败再切下一个。
         """
         attempts = self._attempts()
         if not attempts:
@@ -254,19 +321,62 @@ class OllamaClient:
             primary_idx = 0
         ordered = attempts[primary_idx:] + attempts[:primary_idx]
         deadline = time.monotonic() + _MODEL_CHAIN_BUDGET
+        budget_exhausted = False
         for m in ordered:
-            remaining = deadline - time.monotonic()
-            if remaining <= 1:
-                last_err = RuntimeError("模型调用总预算已耗尽")
-                break
-            try:
-                text = self._call(
-                    m,
-                    messages,
-                    temperature,
-                    max_tokens,
-                    timeout=max(1.0, min(float(timeout), remaining)),
-                )
+            for attempt in range(_RETRY_ON_TRANSIENT + 1):
+                remaining = deadline - time.monotonic()
+                if remaining <= 1:
+                    last_err = RuntimeError("模型调用总预算已耗尽")
+                    budget_exhausted = True
+                    break
+                call_timeout = max(1.0, min(float(timeout), remaining))
+                if attempt > 0:
+                    # 重试必须给后面的 fallback 留够预算，不能把整条链吃光
+                    call_timeout = max(5.0, min(call_timeout, remaining - _RETRY_MIN_REMAINING))
+                try:
+                    text = self._call(
+                        m,
+                        messages,
+                        temperature,
+                        max_tokens,
+                        timeout=call_timeout,
+                    )
+                except RuntimeError as e:
+                    last_err = e
+                    msg = str(e)
+                    # 4xx 直接透传给调用方，不消耗 fallback
+                    if "HTTP 4" in msg and not any(
+                        marker in msg.lower()
+                        for marker in (
+                            "model_disabled",
+                            "model_not_found",
+                            "model not found",
+                            "does not exist",
+                            "disabled on the platform",
+                        )
+                    ):
+                        # 4xx 不熔断（客户端问题，模型本身没问题）
+                        raise
+                    transient = _is_transient_error(msg)
+                    backoff = min(_RETRY_BACKOFF * (2 ** attempt), _RETRY_BACKOFF_MAX)
+                    will_retry = (
+                        attempt < _RETRY_ON_TRANSIENT
+                        and transient
+                        and (deadline - time.monotonic()) > _RETRY_MIN_REMAINING + backoff
+                    )
+                    if will_retry:
+                        print(f"[ai_client] {m} 瞬时失败，{backoff:.0f}s 后重试 ({attempt + 1}/{_RETRY_ON_TRANSIENT}): {msg[:80]}")
+                        time.sleep(backoff)
+                        continue
+                    # 只有真正放弃该模型时才计一次熔断，且冷加载类故障走宽松口径。
+                    # 若在每次重试时都计数，模型还在装载就会被拉黑 90 秒。
+                    self._mark_bad(m, transient=transient)
+                    with self._state_lock:
+                        self._alive_cache_value = False
+                        self._alive_cache_until = time.time() + _PROBE_NEGATIVE_TTL
+                        self._alive_revision += 1
+                    print(f"[ai_client] {m} 失败，转下一个: {msg[:120]}")
+                    break
                 # 成功：清熔断计数 + 更新探活缓存 + 记住好用模型
                 self._mark_good(m)
                 with self._state_lock:
@@ -278,30 +388,8 @@ class OllamaClient:
                     self.model = m
                     print(f"[ai_client] primary={self.primary_model} 不可用，已切换至 fallback {m}")
                 return text
-            except RuntimeError as e:
-                last_err = e
-                msg = str(e)
-                # 4xx 直接透传给调用方，不消耗 fallback
-                if "HTTP 4" in msg and not any(
-                    marker in msg.lower()
-                    for marker in (
-                        "model_disabled",
-                        "model_not_found",
-                        "model not found",
-                        "does not exist",
-                        "disabled on the platform",
-                    )
-                ):
-                    # 4xx 不熔断（客户端问题，模型本身没问题）
-                    raise
-                # 5xx / 连接 / 上游错误 → 累计熔断计数
-                self._mark_bad(m)
-                with self._state_lock:
-                    self._alive_cache_value = False
-                    self._alive_cache_until = time.time() + _PROBE_NEGATIVE_TTL
-                    self._alive_revision += 1
-                print(f"[ai_client] {m} 失败，转下一个: {msg[:120]}")
-                continue
+            if budget_exhausted:
+                break
         raise RuntimeError(f"全部模型不可用 ({len(ordered)} 个): last={last_err}")
 
 
