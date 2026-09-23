@@ -169,3 +169,6 @@
 .reconcile-row span:last-child{font-family:var(--font-mono);font-size:12px;font-weight:500}
 .reconcile-divider{height:1px;background:var(--border);margin:8px 0}
 .reconcile-status{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:11px;text-align:center;font-weight:600;letter-spacing:.02em}
+
+/* AI 健康探测中的过渡状态 */
+.ai-badge .dot.checking{background:var(--amber);box-shadow:0 0 8px #f59e0b99;animation:1.2s ease-in-out infinite blink}

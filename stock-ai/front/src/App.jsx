@@ -345,7 +345,7 @@ export default function App() {
   const [analysisData, setAnalysisData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [signalMode, setSignalMode] = useState(false); // block auto-analyze during signal toggle
-  const [aiOnline, setAiOnline] = useState(false);
+  const [aiOnline, setAiOnline] = useState(null);
   const [modelName, setModelName] = useState('');
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState('');
@@ -363,10 +363,27 @@ export default function App() {
 
   // Health check + market status
   useEffect(() => {
-    fetch('/api/health')
-      .then(r => r.json())
-      .then(d => { setAiOnline(d.ai); setModelName(d.model || ''); })
-      .catch(() => {});
+    let stopped = false;
+    let healthTimer;
+    const loadHealth = async () => {
+      try {
+        const r = await fetch('/api/health');
+        const d = await r.json();
+        if (typeof d.ai === 'boolean') setAiOnline(d.ai);
+        setModelName(d.model || '');
+        return typeof d.ai === 'boolean' ? d.ai : null;
+      } catch {
+        return null;
+      }
+    };
+    const scheduleHealth = async (delay) => {
+      healthTimer = setTimeout(async () => {
+        const state = await loadHealth();
+        const delay = state === true ? 15000 : state === false ? 5000 : 1500;
+        if (!stopped) scheduleHealth(delay);
+      }, delay);
+    };
+    scheduleHealth(0);
     fetch('/api/bot-model')
       .then(r => r.json())
       .then(d => { setBotModel(d.model || ''); setBotModelPending(d.model || ''); })
@@ -397,7 +414,11 @@ export default function App() {
     const t = setInterval(() => {
       fetch('/api/market-status').then(r => r.json()).then(d => setMarketState({ open: d.open, message: d.message })).catch(() => {});
     }, 60000);
-   return () => clearInterval(t);
+    return () => {
+      stopped = true;
+      clearInterval(t);
+      clearTimeout(healthTimer);
+    };
  }, []);
 
 
@@ -472,8 +493,8 @@ export default function App() {
         </div>
         <div className="header-right">
           <div className="ai-badge">
-            <div className={`dot ${aiOnline ? 'online' : 'offline'}`} />
-            <span>{aiOnline ? 'AI在线 · ' : 'AI离线'}</span>
+            <div className={`dot ${aiOnline === null ? 'checking' : aiOnline ? 'online' : 'offline'}`} />
+            <span>{aiOnline === null ? 'AI检测中' : aiOnline ? 'AI在线 · ' : 'AI离线'}</span>
             {aiOnline && models.length > 0 && (
               <select value={selectedModel} onChange={e => handleModelSwitch(e.target.value)}
                 style={{ background: 'transparent', border: 'none', color: 'inherit', fontSize: 'inherit', cursor: 'pointer', outline: 'none', maxWidth: '200px' }}

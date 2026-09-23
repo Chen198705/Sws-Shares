@@ -30,13 +30,15 @@ from config import HIDE_LLM_MODELS
 import market_calendar
 
 
-_HEALTH_CACHE_TTL = 5.0
+_HEALTH_CACHE_TTL = 30.0
+_HEALTH_CACHE_NEGATIVE_TTL = 3.0
 _MODELS_CACHE_TTL = 15.0
 _health_cache = {"expires": 0.0, "payload": None}
 _health_cache_lock = threading.Lock()
+_health_refresh_inflight = False
 _models_cache = {"expires": 0.0, "models": None}
 _models_cache_lock = threading.Lock()
-_analyze_semaphore = asyncio.Semaphore(1)
+_analyze_semaphore = asyncio.Semaphore(2)
 
 
 class SafeJSONResponse(JSONResponse):
@@ -77,15 +79,40 @@ def serialize_positions(positions):
     ]
 
 
+def _refresh_health_cache():
+    global _health_refresh_inflight
+    client = get_client()
+    try:
+        ai_alive = client.is_alive()
+        payload = {"status": "ok", "ai": ai_alive, "model": client.model}
+    except Exception as e:
+        payload = {"status": "degraded", "ai": False, "model": client.model, "error": str(e)}
+    finally:
+        with _health_cache_lock:
+            _health_cache["payload"] = payload
+            ttl = _HEALTH_CACHE_TTL if payload.get("ai") else _HEALTH_CACHE_NEGATIVE_TTL
+            _health_cache["expires"] = time.time() + ttl
+            _health_refresh_inflight = False
+
+
 def _health_payload_sync():
+    """立即返回缓存，模型探活放到后台，避免首屏请求等待 oMLX。"""
+    global _health_refresh_inflight
     now = time.time()
     with _health_cache_lock:
         if now < _health_cache["expires"] and _health_cache["payload"] is not None:
             return dict(_health_cache["payload"])
         client = get_client()
-        payload = {"status": "ok", "ai": client.is_alive(), "model": client.model}
-        _health_cache["payload"] = payload
-        _health_cache["expires"] = time.time() + _HEALTH_CACHE_TTL
+        payload = _health_cache["payload"]
+        if payload is None:
+            payload = {"status": "checking", "ai": None, "model": client.model}
+        if not _health_refresh_inflight:
+            _health_refresh_inflight = True
+            threading.Thread(
+                target=_refresh_health_cache,
+                name="shenwansan-health",
+                daemon=True,
+            ).start()
         return dict(payload)
 
 
@@ -196,7 +223,7 @@ async def history(request):
         return SafeJSONResponse({"error": str(e)}, status_code=500)
 
 
-def _analyze_payload_sync(code: str):
+def _prepare_analysis_payload_sync(code: str):
     stock_data = get_stock_realtime(code)
     if "错误" in stock_data:
         return {"error": stock_data["错误"]}, 400
@@ -209,14 +236,28 @@ def _analyze_payload_sync(code: str):
         avg_pct = sum(vals) / max(len(vals), 1)
     except Exception:
         pass
-    analysis_text, action, used_ai, horizon = analyze_with_fallback(stock_data, ind, avg_pct)
+    return {
+        "stock": stock_data,
+        "indicators": ind,
+        "index_pct": avg_pct,
+    }, 200
+
+
+def _analyze_prepared_payload_sync(prepared: dict, diagnostics: dict):
+    analysis_text, action, used_ai, horizon = analyze_with_fallback(
+        prepared["stock"],
+        prepared["indicators"],
+        prepared["index_pct"],
+        diagnostics=diagnostics,
+    )
     return {
         "analysis": analysis_text,
         "action": action,
         "used_ai": used_ai,
         "horizon": horizon,
-        "stock": stock_data,
-        "indicators": ind,
+        "ai_error": diagnostics.get("ai_error"),
+        "stock": prepared["stock"],
+        "indicators": prepared["indicators"],
     }, 200
 
 
@@ -229,8 +270,16 @@ async def analyze(request):
     if not code:
         return SafeJSONResponse({"error": "股票代码不能为空"}, status_code=400)
     try:
+        prepared, status_code = await run_in_threadpool(_prepare_analysis_payload_sync, code)
+        if status_code != 200:
+            return SafeJSONResponse(prepared, status_code=status_code)
+        diagnostics = {}
         async with _analyze_semaphore:
-            payload, status_code = await run_in_threadpool(_analyze_payload_sync, code)
+            payload, status_code = await run_in_threadpool(
+                _analyze_prepared_payload_sync,
+                prepared,
+                diagnostics,
+            )
         return SafeJSONResponse(payload, status_code=status_code)
     except Exception as e:
         return SafeJSONResponse({"error": str(e)}, status_code=500)

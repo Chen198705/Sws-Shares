@@ -3,6 +3,7 @@ AI 客户端 - oMLX在线时调用本地模型，离线时降级到规则引擎
 """
 import os
 import csv
+import logging
 import time
 import threading
 from datetime import datetime, timedelta
@@ -21,8 +22,7 @@ _POLICY_WINDOW_DAYS = 5
 # 实际生效顺序：env OLLAMA_FALLBACK_MODELS 优先（逗号分隔），否则用此默认值。
 _DEFAULT_FALLBACK_MODELS = (
     "Qwen3.5-9B-MLX-4bit,"
-    "Qwen3.6-27B-Fable-Fusion-711-MTPLX-8bit,"
-    "Qwen3.6-35B-A3B-4bit"
+    "Qwen3.6-35B-A3B-8bit"
 )
 
 # ── 加载性能调优：探测缓存 + 故障熔断 ────────────────────────────
@@ -31,9 +31,14 @@ _DEFAULT_FALLBACK_MODELS = (
 # 同时对持续 5xx / 连接失败 / 上游错误的模型做短期熔断，
 # 让热门 fallback（如 Qwen3.5-9B-MLX-4bit）成为首选，跳过对已知坏模型的重复探测。
 _PROBE_TTL = 30.0           # is_alive() 结果缓存秒数
+_PROBE_NEGATIVE_TTL = 3.0   # 探活失败缓存更短，服务恢复后快速改正状态
 _PROBE_TIMEOUT = 8          # 单模型探测超时（秒），自 15 缩到 8，减少探测链路
 _BAD_MODEL_COOLDOWN = 90.0  # 模型失败后多少秒内跳过（熔断时长）
 _BAD_MODEL_FAILURE_THRESHOLD = 2  # 连续失败次数才熔断，避免单次抖动误杀
+_MODEL_CALL_TIMEOUT = 75.0  # 单模型分析超时，容纳冷启动排队
+_MODEL_CHAIN_BUDGET = 105.0  # 整条 fallback 链的总预算，需小于前端 120s
+
+logger = logging.getLogger(__name__)
 
 
 def _recent_policy_types(days: int = _POLICY_WINDOW_DAYS) -> set:
@@ -98,7 +103,9 @@ class OllamaClient:
         self._alive_cache_value = False
         self._bad_models = {}            # model_name -> expires_at (epoch)
         self._bad_streak = {}            # model_name -> 连续失败计数
-        self._probe_lock = threading.Lock()
+        self._state_lock = threading.RLock()
+        self._probe_inflight = False
+        self._alive_revision = 0
         # 历史成功模型（首选用这个，省一次冷启动）
         self._last_good_model = None
 
@@ -108,51 +115,51 @@ class OllamaClient:
     def _attempts(self):
         """本次 chat 要尝试的模型链路：primary -> fallback（去重、跳过熔断中的模型）"""
         seen = []
-        now = time.time()
-        for m in [self.primary_model] + list(self.fallback_models):
-            if not m or m in seen:
-                continue
-            # 跳过熔断中的模型（除非是 primary——主模型被指定后仍要试）
-            bad_until = self._bad_models.get(m, 0)
-            if bad_until > now and m != self.primary_model:
-                continue
-            seen.append(m)
+        with self._state_lock:
+            now = time.time()
+            for m in [self.primary_model] + list(self.fallback_models):
+                if not m or m in seen:
+                    continue
+                # 跳过熔断中的模型（除非是 primary——主模型被指定后仍要试）
+                bad_until = self._bad_models.get(m, 0)
+                if bad_until > now and m != self.primary_model:
+                    continue
+                seen.append(m)
         return seen
 
-    def _probe(self, model_name: str, timeout: int = _PROBE_TIMEOUT) -> bool:
-        """轻量健康探测（仅用于 is_alive，不更新 self.model）。
-        已知熔断中的模型直接返回 False，不发起网络请求。"""
-        bad_until = self._bad_models.get(model_name, 0)
-        if bad_until > time.time():
+    def _probe(self, timeout: int = _PROBE_TIMEOUT) -> bool:
+        """轻量服务探测：检查 oMLX 是否在线且至少一个候选模型已注册。
+
+        不使用 chat/completions 做探活，避免健康检查触发模型冷启动并占满推理槽位。
+        """
+        try:
+            r = self.session.get(f"{self.base_url}/v1/models", timeout=timeout)
+        except Exception:
+            return False
+        if r.status_code != 200:
             return False
         try:
-            r = self.session.post(
-                f"{self.base_url}/v1/chat/completions",
-                json={"model": model_name, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
-                timeout=timeout,
-            )
-            if r.status_code == 200:
-                self._mark_good(model_name)
-                return True
-            self._mark_bad(model_name)
-            return False
+            data = r.json()
         except Exception:
-            self._mark_bad(model_name)
             return False
+        available = {m.get("id") for m in data.get("data", []) if isinstance(m, dict)}
+        return any(model in available for model in self._attempts())
 
     def _mark_bad(self, model_name: str) -> None:
         """累计失败次数，超过阈值才真正熔断（避免单次抖动误杀）。"""
-        streak = self._bad_streak.get(model_name, 0) + 1
-        self._bad_streak[model_name] = streak
-        if streak >= _BAD_MODEL_FAILURE_THRESHOLD:
-            self._bad_models[model_name] = time.time() + _BAD_MODEL_COOLDOWN
-            print(f"[ai_client] 熔断 {model_name} {int(_BAD_MODEL_COOLDOWN)}s")
+        with self._state_lock:
+            streak = self._bad_streak.get(model_name, 0) + 1
+            self._bad_streak[model_name] = streak
+            if streak >= _BAD_MODEL_FAILURE_THRESHOLD:
+                self._bad_models[model_name] = time.time() + _BAD_MODEL_COOLDOWN
+                print(f"[ai_client] 熔断 {model_name} {int(_BAD_MODEL_COOLDOWN)}s")
 
     def _mark_good(self, model_name: str) -> None:
         """成功的模型清零熔断计数，避免冷却累积。"""
-        if model_name in self._bad_streak or model_name in self._bad_models:
-            self._bad_streak.pop(model_name, None)
-            self._bad_models.pop(model_name, None)
+        with self._state_lock:
+            if model_name in self._bad_streak or model_name in self._bad_models:
+                self._bad_streak.pop(model_name, None)
+                self._bad_models.pop(model_name, None)
     def _call(self, model_name: str, messages, temperature: float, max_tokens: int, timeout: int = 120) -> str:
         """单模型调用：5xx / 连接失败 / 空 choices / upstream error 都抛 RuntimeError"""
         payload = {
@@ -205,22 +212,32 @@ class OllamaClient:
     def is_alive(self) -> bool:
         """主模型 + fallback 任一可达即 True。
         结果按 _PROBE_TTL 秒缓存，避免前端轮询 / 健康检查反复打到 oMLX。
-        探测时不发起对已知熔断中模型的请求。"""
-        with self._probe_lock:
-            now = time.time()
+        探测时不发起对已知熔断中模型的请求，也不在持锁期间做网络请求。
+        若另一线程正在探测，立即返回上一次结果，避免健康检查阻塞分析调用。"""
+        now = time.time()
+        with self._state_lock:
             if now < self._alive_cache_until:
                 return self._alive_cache_value
-            ok = False
-            for m in self._attempts():
-                # _probe 内部已查熔断表；这里只对未熔断的模型发请求
-                if self._probe(m):
-                    ok = True
-                    break
-            self._alive_cache_value = ok
-            self._alive_cache_until = now + _PROBE_TTL
-            return ok
+            if self._probe_inflight:
+                return self._alive_cache_value
+            self._probe_inflight = True
+            revision = self._alive_revision
 
-    def chat(self, messages, temperature=0.7, max_tokens=2048) -> str:
+        ok = False
+        try:
+            ok = self._probe()
+        finally:
+            with self._state_lock:
+                # chat() 成功会写入更新的状态，不要让一个较旧探测覆盖它。
+                if revision == self._alive_revision:
+                    self._alive_cache_value = ok
+                    ttl = _PROBE_TTL if ok else _PROBE_NEGATIVE_TTL
+                    self._alive_cache_until = time.time() + ttl
+                result = self._alive_cache_value
+                self._probe_inflight = False
+        return result
+
+    def chat(self, messages, temperature=0.7, max_tokens=2048, timeout: float = _MODEL_CALL_TIMEOUT) -> str:
         """先主模型；失败按 fallback 链自动切换。成功后将 self.model 提升到可用模型。
 
         4xx 视为 prompt 问题（不消耗 fallback），立刻抛；
@@ -236,14 +253,26 @@ class OllamaClient:
         else:
             primary_idx = 0
         ordered = attempts[primary_idx:] + attempts[:primary_idx]
+        deadline = time.monotonic() + _MODEL_CHAIN_BUDGET
         for m in ordered:
+            remaining = deadline - time.monotonic()
+            if remaining <= 1:
+                last_err = RuntimeError("模型调用总预算已耗尽")
+                break
             try:
-                text = self._call(m, messages, temperature, max_tokens)
+                text = self._call(
+                    m,
+                    messages,
+                    temperature,
+                    max_tokens,
+                    timeout=max(1.0, min(float(timeout), remaining)),
+                )
                 # 成功：清熔断计数 + 更新探活缓存 + 记住好用模型
                 self._mark_good(m)
-                with self._probe_lock:
+                with self._state_lock:
                     self._alive_cache_value = True
                     self._alive_cache_until = time.time() + _PROBE_TTL
+                    self._alive_revision += 1
                 self._last_good_model = m
                 if m != self.model:
                     self.model = m
@@ -253,14 +282,24 @@ class OllamaClient:
                 last_err = e
                 msg = str(e)
                 # 4xx 直接透传给调用方，不消耗 fallback
-                if "HTTP 4" in msg:
+                if "HTTP 4" in msg and not any(
+                    marker in msg.lower()
+                    for marker in (
+                        "model_disabled",
+                        "model_not_found",
+                        "model not found",
+                        "does not exist",
+                        "disabled on the platform",
+                    )
+                ):
                     # 4xx 不熔断（客户端问题，模型本身没问题）
                     raise
                 # 5xx / 连接 / 上游错误 → 累计熔断计数
                 self._mark_bad(m)
-                with self._probe_lock:
+                with self._state_lock:
                     self._alive_cache_value = False
-                    self._alive_cache_until = time.time() + _PROBE_TTL
+                    self._alive_cache_until = time.time() + _PROBE_NEGATIVE_TTL
+                    self._alive_revision += 1
                 print(f"[ai_client] {m} 失败，转下一个: {msg[:120]}")
                 continue
         raise RuntimeError(f"全部模型不可用 ({len(ordered)} 个): last={last_err}")
@@ -332,7 +371,12 @@ def _value_factor_line(code: str) -> str:
         return ""
 
 
-def analyze_with_fallback(stock_data: dict, indicators: dict, index_pct: float = 0.0) -> tuple[str, str, bool, str]:
+def analyze_with_fallback(
+    stock_data: dict,
+    indicators: dict,
+    index_pct: float = 0.0,
+    diagnostics: dict = None,
+) -> tuple[str, str, bool, str]:
     """
     返回 (analysis_text, action, used_ai, horizon)
     horizon: short | medium | long
@@ -370,8 +414,10 @@ def analyze_with_fallback(stock_data: dict, indicators: dict, index_pct: float =
         action = _parse_action(text)
         horizon = _parse_horizon(text)
         return text, action, True, horizon
-    except Exception:
+    except Exception as e:
         # chat 全失败 — 退回到规则引擎，避免上次那种 502 拖死整页的体验
-        pass
+        if diagnostics is not None:
+            diagnostics["ai_error"] = f"{type(e).__name__}: {e}"[:500]
+        logger.warning("AI 分析失败，回退规则引擎: %s", e)
     text, action = rule_analyze(stock_data, indicators, index_pct)
     return text, action, False, "medium"
