@@ -42,6 +42,9 @@ class StrategyParams:
     short_trailing_drawdown: float = 0.03
     mid_trailing_activate: float = 0.06
     mid_trailing_drawdown: float = 0.03
+    # ---- 回撤止盈 vol-aware（ATR% 自适应红线，与止损/止盈思路一致）----
+    vol_trailing_activate_k: float = 1.5   # 浮盈 ≥ k * ATR% 即激活 trailing
+    vol_trailing_drawdown_k: float = 0.6   # 回撤 m * ATR% 即落袋
     # ---- 波动率自适应（自动红线，替代/覆盖人工阈值） ----
     # 止损 = max(策略红线, -vol_stop_k * ATR%)；止盈 = max(策略红线, vol_take_k * ATR%)
     # 仓位上限 = clip(vol_position_k / ATR%, vol_position_floor, vol_position_ceiling)
@@ -137,6 +140,7 @@ def load_params() -> StrategyParams:
         "long_stop_loss", "long_take_profit",
         "short_trailing_activate", "short_trailing_drawdown",
         "mid_trailing_activate", "mid_trailing_drawdown",
+        "vol_trailing_activate_k", "vol_trailing_drawdown_k",
         "vol_stop_k", "vol_take_k",
         "vol_min_stop", "vol_max_stop",
         "vol_position_k", "vol_position_floor", "vol_position_ceiling",
@@ -458,6 +462,34 @@ def get_volatility_adjusted_stop_take(strategy_type: str, params: StrategyParams
     # 止盈：波动大时让盈利奔跑，atr_pct=0 时已 return 0
     vol_tp = params.vol_take_k * atr_pct
     return sl, vol_tp
+
+
+def get_volatility_trailing_threshold(strategy_type: str, params: StrategyParams,
+                                        atr_pct: Optional[float]) -> tuple[float, float]:
+    """trailing 阈值 vol-aware：红线由 ATR% 自动划，与止损/止盈同思路。
+
+    规则：
+      activate = max(fixed_threshold, vol_trailing_activate_k * atr_pct)
+      drawdown = max(fixed_threshold, vol_trailing_drawdown_k * atr_pct)
+    长线不启用（返回 inf, 0 不触发）。
+    atr_pct 不可用时退回固定阈值。
+    """
+    label = _HORIZON_ALIASES.get((strategy_type or "").strip().lower(), strategy_type or "中线")
+    if label == "长线":
+        return float("inf"), 0.0
+    if label == "短线":
+        fixed_a, fixed_d = params.short_trailing_activate, params.short_trailing_drawdown
+    else:
+        fixed_a, fixed_d = params.mid_trailing_activate, params.mid_trailing_drawdown
+    if not atr_pct or atr_pct <= 0:
+        return fixed_a, fixed_d
+    vol_a = params.vol_trailing_activate_k * atr_pct
+    vol_d = params.vol_trailing_drawdown_k * atr_pct
+    # vol-aware 与人工红线取较小激活线、较小回撤（更积极落袋，避免 fixed 太松）
+    # 注：对 trailing 来说，激活线低意味着早开始锁定利润；drawdown 小意味着落袋更紧
+    activate = min(vol_a, fixed_a) if vol_a > 0 else fixed_a
+    drawdown = min(vol_d, fixed_d) if vol_d > 0 else fixed_d
+    return activate, drawdown
 
 
 def get_volatility_position_size(params: StrategyParams, atr_pct: Optional[float]) -> float:

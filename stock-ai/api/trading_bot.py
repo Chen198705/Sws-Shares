@@ -36,6 +36,7 @@ from strategy_store import (
     get_account_peak, update_account_peak, get_circuit_break_until, set_circuit_break,
     close_attribution_for_code,
     get_volatility_adjusted_stop_take, get_volatility_position_size,
+    get_volatility_trailing_threshold,
 )
 from industry_map import sector_concentration_ok
 from iteration_engine import run_iteration, iteration_running
@@ -420,13 +421,19 @@ ATR%={atr_str}。指标: {ind_brief}
         return "skip"
 
 
-def _trailing_hit(stype: str, params, peak: float, pnl_pct: float) -> bool:
-    """回撤止盈：短线/中线到达激活线后，从峰值回撤超过阈值即落袋；长线不启用"""
-    if stype == "短线":
-        return peak >= params.short_trailing_activate and pnl_pct <= peak - params.short_trailing_drawdown
-    if stype == "中线":
-        return peak >= params.mid_trailing_activate and pnl_pct <= peak - params.mid_trailing_drawdown
-    return False
+def _trailing_hit(stype: str, params, peak: float, pnl_pct: float, atr_pct: float = 0.0) -> bool:
+    """回撤止盈：vol-aware 阈值，浮盈足够 + 从峰值回撤即落袋；长线不启用。
+
+    中青旅教训：fixed mid_trailing_activate=0.06 太严，peak ~3.8% 永远到不了，
+    导致 trailing 形同虚设，价格回踩时无法落袋。改为 vol-aware 后：
+    ATR=2.5% 时 activate=1.5*2.5%=3.75%，落袋线=peak-0.6*2.5%=peak-1.5%。
+    """
+    if stype == "长线":
+        return False
+    activate, drawdown = get_volatility_trailing_threshold(stype, params, atr_pct)
+    if activate == float("inf") or drawdown <= 0:
+        return False
+    return peak >= activate and pnl_pct <= peak - drawdown
 
 
 def check_positions(client, broker):
@@ -461,7 +468,7 @@ def check_positions(client, broker):
             peak = pnl_pct
             _trailing_peak[code] = peak
             _save_trailing_peak(code, peak, stype)
-        trailing = _trailing_hit(stype, params, peak, pnl_pct)
+        trailing = _trailing_hit(stype, params, peak, pnl_pct, atr_pct)
         # ── 止损 / 止盈 / 回撤 共用的卖出执行 ──
         def _do_sell(reason: str):
             nonlocal action_taken
@@ -817,6 +824,9 @@ def main_loop(stop_event):
     print(f"短线止损{params.short_stop_loss*100:.0f}%止盈{params.short_take_profit*100:.0f}%  中线止损{params.mid_stop_loss*100:.0f}%止盈{params.mid_take_profit*100:.0f}%  长线止损{params.long_stop_loss*100:.0f}%止盈{params.long_take_profit*100:.0f}%")
     print(f"持仓检查每{POSITION_CHECK_INTERVAL//60}分钟 · 全市场选股每{MARKET_SCAN_INTERVAL//60}分钟")
     print(f"回撤止盈: 短线+{params.short_trailing_activate*100:.0f}%启动回撤{params.short_trailing_drawdown*100:.0f}%落袋  中线+{params.mid_trailing_activate*100:.0f}%启动回撤{params.mid_trailing_drawdown*100:.0f}%落袋")
+    print(f"trailing vol-aware: 激活={params.vol_trailing_activate_k:.1f}x ATR%, 回撤={params.vol_trailing_drawdown_k:.1f}x ATR% (与固定红线取较紧者)")
+    fb = ", ".join(client.fallback_models) if client.fallback_models else "无"
+    print(f"AI fallback chain: primary={client.primary_model} | fallback=[{fb}]")
     print(f"迭代触发: 满 {params.observation_trades_threshold} 笔观察 / 满 {params.adjust_trades_threshold} 笔复核调参")
     print(f"迭代水位: 上次观察卖单 id={params.last_iterated_sell_id}，上次复核卖单 id={params.last_reviewed_sell_id}")
     Thread(target=run_scheduled_reports, args=(stop_event,), daemon=True).start()
