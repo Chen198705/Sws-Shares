@@ -14,6 +14,15 @@ from strategy_store import get_research_overlay
 
 _POLICY_WINDOW_DAYS = 5
 
+# 主模型不可用时的 fallback 链（按顺序尝试）。
+# 优先选择：与主模型同系列但更小（响应快）→ 不同家族的中等模型。
+# 实际生效顺序：env OLLAMA_FALLBACK_MODELS 优先（逗号分隔），否则用此默认值。
+_DEFAULT_FALLBACK_MODELS = (
+    "Qwen3.5-9B-MLX-4bit,"
+    "Qwen3.6-27B-Fable-Fusion-711-MTPLX-8bit,"
+    "Qwen3.6-35B-A3B-4bit"
+)
+
 
 def _recent_policy_types(days: int = _POLICY_WINDOW_DAYS) -> set:
     """返回最近 days 个自然日内有事件的 policy_type（v2 为最新事件登记）。"""
@@ -60,31 +69,32 @@ def _policy_overlay_text() -> str:
 
 
 class OllamaClient:
-    _DEFAULT_FALLBACK_MODELS = "Qwen3.5-9B-MLX-4bit"
-
-    def __init__(self, base_url=None, api_key=None, model=None, fallback_models=None):
+    def __init__(self, base_url=None, api_key=None, model=None):
         self.base_url = (base_url or OLLAMA_BASE_URL).rstrip("/")
         self.api_key = api_key or OLLAMA_API_KEY
         self.model = model or OLLAMA_MODEL
         self.session = requests.Session()
         self.session.headers.update({"Authorization": f"Bearer {self.api_key}"})
-        # primary 锁定构造时的 model；fallback 链从参数/env 读
+        # 初始化 fallback 链（primary_model 锁定为构造时的 model）
+        env_fb = os.getenv("OLLAMA_FALLBACK_MODELS", _DEFAULT_FALLBACK_MODELS)
         self.primary_model = self.model
-        if fallback_models is not None:
-            self.fallback_models = [m for m in list(fallback_models) if m and m != self.primary_model]
-        else:
-            env_fb = os.getenv("OLLAMA_FALLBACK_MODELS", self._DEFAULT_FALLBACK_MODELS)
-            self.fallback_models = [m.strip() for m in env_fb.split(",") if m.strip() and m.strip() != self.primary_model]
+        fb_list = [m.strip() for m in env_fb.split(",") if m.strip()]
+        # 去重 + 跳过 primary
+        self.fallback_models = [m for m in fb_list if m and m != self.primary_model]
 
-    # ---- Fallback 链路（主模型 5xx/连接错/上游错 → 自动切 fallback）----
+    # ── Fallback chain ─────────────────────────────────────────────
+    # 主模型挂掉时自动按 fallback_models 顺序切换；调用方无需感知。
+    # 配置：env OLLAMA_FALLBACK_MODELS="m1,m2,m3"，缺省为 [_DEFAULT_FALLBACK_MODELS]
     def _attempts(self):
-        seen, out = set(), []
+        """本次 chat 要尝试的模型链路：primary -> fallback（去重、跳过 primary）"""
+        seen = []
         for m in [self.primary_model] + list(self.fallback_models):
             if m and m not in seen:
-                seen.add(m); out.append(m)
-        return out
+                seen.append(m)
+        return seen
 
-    def _probe(self, model_name, timeout=15):
+    def _probe(self, model_name: str, timeout: int = 15) -> bool:
+        """轻量健康探测（仅用于 is_alive，不更新 self.model）"""
         try:
             r = self.session.post(
                 f"{self.base_url}/v1/chat/completions",
@@ -95,40 +105,54 @@ class OllamaClient:
         except Exception:
             return False
 
-    def _call(self, model_name, messages, temperature, max_tokens, timeout=120):
-        payload = {"model": model_name, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+    def _call(self, model_name: str, messages, temperature: float, max_tokens: int, timeout: int = 120) -> str:
+        """单模型调用：5xx / 连接失败 / 空 choices / upstream error 都抛 RuntimeError"""
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
         try:
-            resp = self.session.post(f"{self.base_url}/v1/chat/completions", json=payload, timeout=timeout)
+            resp = self.session.post(
+                f"{self.base_url}/v1/chat/completions",
+                json=payload,
+                timeout=timeout,
+            )
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError) as e:
             raise RuntimeError(f"{model_name} 连接失败: {type(e).__name__}: {e}") from e
         if resp.status_code >= 500:
             raise RuntimeError(f"{model_name} HTTP {resp.status_code}: {resp.text[:200]}")
         if resp.status_code >= 400:
-            # 4xx 视为 prompt 问题，直接透传（不消耗 fallback）
+            # 4xx 视为客户端问题（不切换 fallback，直接抛），让调用方修 prompt
             raise RuntimeError(f"{model_name} HTTP {resp.status_code}: {resp.text[:200]}")
         try:
             data = resp.json()
         except Exception as e:
             raise RuntimeError(f"{model_name} 响应非 JSON: {resp.text[:200]}") from e
         if isinstance(data, dict) and data.get("error") and "choices" not in data:
-            raise RuntimeError(f"{model_name} upstream error: {data['error']}")
+            raise RuntimeError(f"{model_name} 上游错误: {data['error']}")
         choices = (data.get("choices") or []) if isinstance(data, dict) else []
         if not choices:
-            raise RuntimeError(f"{model_name} empty choices: {str(data)[:200]}")
+            raise RuntimeError(f"{model_name} 返回空 choices: {str(data)[:200]}")
         return choices[0]["message"]["content"]
 
-    def set_model(self, model):
-        """切换主模型；当前生效模型压入 fallback 链首（保持可达性记忆）"""
+    def set_model(self, model: str):
+        """切换主模型；旧主模型压入 fallback 链首（若其确实可用过）"""
         if model == self.primary_model:
             return
+        # 如果 self.model 已经在 fallback 链上（说明之前被提升过），保持不动；
+        # 否则把"当前生效模型"压入 fallback 头部，下次失败时还能回来
         if self.model and self.model != self.primary_model and self.model not in self.fallback_models:
             self.fallback_models = [self.model] + self.fallback_models
         self.primary_model = model
         self.model = model
 
     def reset_session(self):
+        """重置session以应用新的认证信息"""
         self.session = requests.Session()
         self.session.headers.update({"Authorization": f"Bearer {self.api_key}"})
+
 
     def is_alive(self) -> bool:
         """主模型 + fallback 任一可达即 True（探测不更新 self.model）"""
@@ -138,34 +162,40 @@ class OllamaClient:
         return False
 
     def chat(self, messages, temperature=0.7, max_tokens=2048) -> str:
-        """主模型优先；5xx/连接错/上游错 → 自动切 fallback。成功后 self.model 提升到可用模型。"""
+        """先主模型；失败按 fallback 链自动切换。成功后将 self.model 提升到可用模型。
+
+        4xx 视为 prompt 问题（不消耗 fallback），立刻抛；
+        5xx / 连接错 / 上游错误 → 切下一个。
+        """
         attempts = self._attempts()
         if not attempts:
-            raise RuntimeError("无可用模型: primary 与 fallback 均为空")
+            raise RuntimeError("无可用模型：primary_model 与 fallback_models 均为空")
+        last_err = None
+        # 找到第一个为 self.model 的起点作为优先（避免每次都从头重试已知的坏模型）
         try:
             start = attempts.index(self.model)
         except ValueError:
             start = 0
         ordered = attempts[start:] + attempts[:start]
-        last_err = None
         for m in ordered:
             try:
                 text = self._call(m, messages, temperature, max_tokens)
                 if m != self.model:
-                    # 成功后将 self.model 提升到该模型；保留 self.fallback_models 不动，
-                    # 让下次 chat 仍然先试 primary（万一主模型恢复了）。链上每个值代表「曾经可达过的」备用。
+                    if self.primary_model != m:
+                        # 把成功的 fallback 从链上去重（避免下次又试），避免污染 fallback 链
+                        self.fallback_models = [x for x in self.fallback_models if x != m]
                     self.model = m
-                    print(f"[ai_client] primary={self.primary_model} 不可用，已切至 fallback {m}")
+                    print(f"[ai_client] primary={self.primary_model} 不可用，已切换至 fallback {m}")
                 return text
             except RuntimeError as e:
                 last_err = e
                 msg = str(e)
+                # 4xx 直接透传给调用方，不消耗 fallback
                 if "HTTP 4" in msg:
                     raise
-                print(f"[ai_client] {m} 失败，转下一个: {msg[:140]}")
+                print(f"[ai_client] {m} 失败，转下一个: {msg[:120]}")
                 continue
-        raise RuntimeError(f"全部 {len(ordered)} 个模型不可用: last={last_err}")
-
+        raise RuntimeError(f"全部模型不可用 ({len(ordered)} 个): last={last_err}")
 
 
 def _parse_horizon(text: str) -> str:

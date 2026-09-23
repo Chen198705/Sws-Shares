@@ -36,7 +36,6 @@ from strategy_store import (
     get_account_peak, update_account_peak, get_circuit_break_until, set_circuit_break,
     close_attribution_for_code,
     get_volatility_adjusted_stop_take, get_volatility_position_size,
-    get_volatility_trailing_threshold,
 )
 from industry_map import sector_concentration_ok
 from iteration_engine import run_iteration, iteration_running
@@ -73,6 +72,10 @@ def init_db():
         ts TEXT, code TEXT, strategy_type TEXT,
         action TEXT, reason TEXT, indicators TEXT,
         pnl_pct REAL, atr_pct REAL)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS ai_sell_streak (
+        code TEXT PRIMARY KEY,
+        streak INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL)""")
     try:
         c.execute("ALTER TABLE trades ADD COLUMN strategy_type TEXT DEFAULT '中线'")
     except Exception:
@@ -309,6 +312,7 @@ def _horizon_label(value) -> str:
 
 _trailing_peak: dict = {}
 _last_ai_review: dict = {}  # code -> datetime（最近一次 AI 复评的时间）
+_ai_sell_streak: dict = {}  # code -> int（连续 AI sell 次数；用于反噪声）
 
 
 def _load_trailing_peak(code: str) -> Optional[float]:
@@ -340,6 +344,39 @@ def _drop_trailing_peak(code: str):
     try:
         c = sqlite3.connect(str(DB_PATH))
         c.execute("DELETE FROM trailing_peaks WHERE code=?", (code,))
+        c.commit()
+        c.close()
+    except Exception:
+        pass
+
+
+def _load_ai_sell_streak(code: str) -> int:
+    try:
+        c = sqlite3.connect(str(DB_PATH))
+        row = c.execute("SELECT streak FROM ai_sell_streak WHERE code=?", (code,)).fetchone()
+        c.close()
+        return int(row[0]) if row else 0
+    except Exception:
+        return 0
+
+
+def _save_ai_sell_streak(code: str, streak: int):
+    try:
+        c = sqlite3.connect(str(DB_PATH))
+        c.execute(
+            "INSERT OR REPLACE INTO ai_sell_streak (code, streak, updated_at) VALUES (?,?,?)",
+            (code, int(streak), datetime.now().isoformat()))
+        c.commit()
+        c.close()
+    except Exception as e:
+        print(f"  [_ai_sell_streak] 保存失败 {code}: {e}")
+
+
+def _drop_ai_sell_streak(code: str):
+    """平仓后清理 sell streak。"""
+    try:
+        c = sqlite3.connect(str(DB_PATH))
+        c.execute("DELETE FROM ai_sell_streak WHERE code=?", (code,))
         c.commit()
         c.close()
     except Exception:
@@ -421,19 +458,13 @@ ATR%={atr_str}。指标: {ind_brief}
         return "skip"
 
 
-def _trailing_hit(stype: str, params, peak: float, pnl_pct: float, atr_pct: float = 0.0) -> bool:
-    """回撤止盈：vol-aware 阈值，浮盈足够 + 从峰值回撤即落袋；长线不启用。
-
-    中青旅教训：fixed mid_trailing_activate=0.06 太严，peak ~3.8% 永远到不了，
-    导致 trailing 形同虚设，价格回踩时无法落袋。改为 vol-aware 后：
-    ATR=2.5% 时 activate=1.5*2.5%=3.75%，落袋线=peak-0.6*2.5%=peak-1.5%。
-    """
-    if stype == "长线":
-        return False
-    activate, drawdown = get_volatility_trailing_threshold(stype, params, atr_pct)
-    if activate == float("inf") or drawdown <= 0:
-        return False
-    return peak >= activate and pnl_pct <= peak - drawdown
+def _trailing_hit(stype: str, params, peak: float, pnl_pct: float) -> bool:
+    """回撤止盈：短线/中线到达激活线后，从峰值回撤超过阈值即落袋；长线不启用"""
+    if stype == "短线":
+        return peak >= params.short_trailing_activate and pnl_pct <= peak - params.short_trailing_drawdown
+    if stype == "中线":
+        return peak >= params.mid_trailing_activate and pnl_pct <= peak - params.mid_trailing_drawdown
+    return False
 
 
 def check_positions(client, broker):
@@ -449,7 +480,9 @@ def check_positions(client, broker):
         if entry <= 0 or cur_p <= 0:
             continue
         # ── T+1 闸口：T+0 买入当日不可卖，止损/止盈/回撤均静默跳过 ──
-        if broker.sellable_volume(code) <= 0:
+        sv = broker.sellable_volume(code)
+        if sv <= 0:
+            print(f"  [{code}] T+1闸口 跳过：今日买入当日不可卖（持{vol}股，需持有≥1日才能卖）")
             continue
         pnl_pct = (cur_p - entry) / entry
         # ── 波动率画像：用 ATR% 反推红线（替代/收紧人工阈值） ──
@@ -468,7 +501,7 @@ def check_positions(client, broker):
             peak = pnl_pct
             _trailing_peak[code] = peak
             _save_trailing_peak(code, peak, stype)
-        trailing = _trailing_hit(stype, params, peak, pnl_pct, atr_pct)
+        trailing = _trailing_hit(stype, params, peak, pnl_pct)
         # ── 止损 / 止盈 / 回撤 共用的卖出执行 ──
         def _do_sell(reason: str):
             nonlocal action_taken
@@ -481,6 +514,8 @@ def check_positions(client, broker):
                     print(f"  [{code}] {reason}，盈亏 ¥{pnl:+.2f}")
                     _trailing_peak.pop(code, None)
                     _drop_trailing_peak(code)
+                    _ai_sell_streak.pop(code, None)
+                    _drop_ai_sell_streak(code)
                     action_taken = True
                     return True
             except Exception as e:
@@ -505,12 +540,26 @@ def check_positions(client, broker):
         else:
             # ── 兜底：价格规则未触发 → 触发 AI 复评通道（浮亏时） ──
             if _should_ai_review(code, pnl_pct, params):
+                # 进程重启 streak 从 SQLite 加载；缺失则视为 0
+                if code not in _ai_sell_streak:
+                    _ai_sell_streak[code] = _load_ai_sell_streak(code)
                 decision = _ai_re_evaluate_position(client, broker, code, pos, params, atr_pct)
+                # 反噪声：连续 N 次独立复评建议 sell 才真正平仓，避免单次抖动误卖
+                threshold = int(getattr(params, "ai_sell_streak_threshold", 2) or 2)
                 if decision == "sell":
-                    reason = f"AI复评建议平仓（{pnl_pct*100:+.1f}%，ATR%={atr_pct*100:.1f}%）[{stype}]"
+                    _ai_sell_streak[code] = int(_ai_sell_streak.get(code, 0)) + 1
+                    _save_ai_sell_streak(code, _ai_sell_streak[code])
+                else:
+                    if _ai_sell_streak.get(code, 0):
+                        _ai_sell_streak[code] = 0
+                        _save_ai_sell_streak(code, 0)
+                streak = _ai_sell_streak.get(code, 0)
+                if decision == "sell" and streak >= threshold:
+                    reason = f"AI复评连续{streak}次建议平仓（{pnl_pct*100:+.1f}%，ATR%={atr_pct*100:.1f}%）[{stype}]"
                     _do_sell(reason)
                 else:
-                    print(f"  [{code}] 持仓[{stype}] 成本¥{entry:.2f} 现价¥{cur_p:.2f} {pnl_pct*100:+.1f}% vol红线 {sl*100:.1f}%/{tp*100:.1f}% AI: {decision}")
+                    tail = f" streak={streak}/{threshold}" if decision == "sell" else ""
+                    print(f"  [{code}] 持仓[{stype}] 成本¥{entry:.2f} 现价¥{cur_p:.2f} {pnl_pct*100:+.1f}% vol红线 {sl*100:.1f}%/{tp*100:.1f}% AI: {decision}{tail}")
             else:
                 print(f"  [{code}] 持仓[{stype}] 成本¥{entry:.2f} 现价¥{cur_p:.2f} {pnl_pct*100:+.1f}% vol红线 {sl*100:.1f}%/{tp*100:.1f}%")
     if action_taken:
@@ -824,9 +873,6 @@ def main_loop(stop_event):
     print(f"短线止损{params.short_stop_loss*100:.0f}%止盈{params.short_take_profit*100:.0f}%  中线止损{params.mid_stop_loss*100:.0f}%止盈{params.mid_take_profit*100:.0f}%  长线止损{params.long_stop_loss*100:.0f}%止盈{params.long_take_profit*100:.0f}%")
     print(f"持仓检查每{POSITION_CHECK_INTERVAL//60}分钟 · 全市场选股每{MARKET_SCAN_INTERVAL//60}分钟")
     print(f"回撤止盈: 短线+{params.short_trailing_activate*100:.0f}%启动回撤{params.short_trailing_drawdown*100:.0f}%落袋  中线+{params.mid_trailing_activate*100:.0f}%启动回撤{params.mid_trailing_drawdown*100:.0f}%落袋")
-    print(f"trailing vol-aware: 激活={params.vol_trailing_activate_k:.1f}x ATR%, 回撤={params.vol_trailing_drawdown_k:.1f}x ATR% (与固定红线取较紧者)")
-    fb = ", ".join(client.fallback_models) if client.fallback_models else "无"
-    print(f"AI fallback chain: primary={client.primary_model} | fallback=[{fb}]")
     print(f"迭代触发: 满 {params.observation_trades_threshold} 笔观察 / 满 {params.adjust_trades_threshold} 笔复核调参")
     print(f"迭代水位: 上次观察卖单 id={params.last_iterated_sell_id}，上次复核卖单 id={params.last_reviewed_sell_id}")
     Thread(target=run_scheduled_reports, args=(stop_event,), daemon=True).start()

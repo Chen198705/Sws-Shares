@@ -18,5 +18,11 @@ api/reports/*.db
 **/api/bin/
 *.pyc
 .pytest_cache/
+
+# 备份/历史重命名文件（不要入库）
+*.bak.*
+_bak_*/
+**_bak_*/
+**/*.bak.*
 research/data/cache/
 research/**/results/*_nav.csv
