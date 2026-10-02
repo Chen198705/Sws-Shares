@@ -534,10 +534,10 @@ def set_circuit_break(days: int) -> str:
 
 # 不同 horizon 的 cache 过期时间（秒）：短线短、中线中、长线长
 _ANALYSIS_TTL_SECONDS = {
-    "short": 300,     # 短线 5 分钟（盘口变化快）
-    "mid": 1200,      # 中线 20 分钟
-    "long": 3600,     # 长线 1 小时
-    "unknown": 600,   # 默认 10 分钟
+    "short": 900,     # 短线 15 分钟
+    "mid": 1800,      # 中线 30 分钟
+    "long": 10800,    # 长线 180 分钟（3 小时，覆盖全交易日）
+    "unknown": 1800,  # 默认 30 分钟
 }
 
 
@@ -573,6 +573,19 @@ def init_analysis_schema():
     # 部分索引：调度器按优先级 + 时间拉取
     c.execute("""CREATE INDEX IF NOT EXISTS idx_queue_priority
         ON analysis_queue(priority DESC, queued_at ASC) WHERE status='pending'""")
+    # 观点翻转事件表：只在 action/horizon 翻转瞬间记一行（不存全文）
+    c.execute("""CREATE TABLE IF NOT EXISTS analysis_view_flips (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL,
+        from_action TEXT,
+        to_action TEXT,
+        from_horizon TEXT,
+        to_horizon TEXT,
+        flipped_at TEXT,
+        used_model TEXT,
+        prev_created_at TEXT)""")
+    c.execute("""CREATE INDEX IF NOT EXISTS idx_flips_code_time
+        ON analysis_view_flips(code, flipped_at DESC)""")
     c.commit()
     c.close()
 
@@ -619,18 +632,36 @@ def get_cached_analysis(code: str):
 def save_analysis(code: str, stock_snapshot: dict, indicators: dict,
                   analysis_text: str, action: str, horizon: str,
                   used_model: str, used_ai: bool, ai_error: str = "") -> None:
-    """写入或覆盖 cache。按 horizon 决定 expires_at，is_stale 重置为 0。"""
+    """写入或覆盖 cache。按 horizon 决定 expires_at，is_stale 重置为 0。
+    若与上一份 cache 的 action/horizon 不同，先在 analysis_view_flips 记一行事件。
+    """
     ttl = _analysis_ttl_for(horizon)
     now = datetime.now()
     expires = now + timedelta(seconds=ttl)
+    new_action = (action or "hold").strip().lower()
+    new_horizon = (horizon or "unknown").strip().lower()
     c = _conn()
+    prev = c.execute(
+        "SELECT action, horizon, created_at FROM analysis_cache WHERE code=?",
+        (code,)).fetchone()
+    if prev is not None:
+        prev_action = (prev[0] or "").strip().lower()
+        prev_horizon = (prev[1] or "").strip().lower()
+        prev_created = prev[2] or ""
+        if (prev_action != new_action) or (prev_horizon != new_horizon):
+            c.execute("""INSERT INTO analysis_view_flips
+                (code, from_action, to_action, from_horizon, to_horizon,
+                 flipped_at, used_model, prev_created_at)
+                VALUES (?,?,?,?,?,?,?,?)""",
+                (code, prev_action, new_action, prev_horizon, new_horizon,
+                 now.isoformat(), used_model or "", prev_created))
     c.execute("""INSERT OR REPLACE INTO analysis_cache
         (code, stock_snapshot, indicators, analysis_text, action, horizon,
          used_model, used_ai, ai_error, created_at, expires_at, is_stale)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,0)""",
         (code, json.dumps(stock_snapshot or {}, ensure_ascii=False, default=str),
          json.dumps(indicators or {}, ensure_ascii=False, default=str),
-         analysis_text or "", action or "hold", horizon or "unknown",
+         analysis_text or "", new_action, new_horizon,
          used_model or "", 1 if used_ai else 0, ai_error or "",
          now.isoformat(), expires.isoformat()))
     c.commit()
