@@ -319,12 +319,13 @@ def _prepare_analysis_payload_sync(code: str):
     }, 200
 
 
-def _analyze_prepared_payload_sync(prepared: dict, diagnostics: dict):
+def _analyze_prepared_payload_sync(prepared: dict, diagnostics: dict, client=None):
     analysis_text, action, used_ai, horizon = analyze_with_fallback(
         prepared["stock"],
         prepared["indicators"],
         prepared["index_pct"],
         diagnostics=diagnostics,
+        client=client,
     )
     return {
         "analysis": analysis_text,
@@ -354,16 +355,26 @@ def _cache_to_payload(cached, code):
     }
 
 
-def _run_full_analysis_sync(code, diagnostics):
-    """同步跑一次完整 AI 分析并写 cache。返回 (payload, status)。"""
+def _run_full_analysis_sync(code, diagnostics, override_model=None):
+    """同步跑一次完整 AI 分析并写 cache。返回 (payload, status)。
+
+    override_model：网页端用户独立选择的模型；为 None 时用全局 client。
+    override_model 模式下构造一次性 OMLXClient（不写回 bot_config.json，
+    不影响 trading_bot / API 进程全局 client）。
+    """
     prepared, status_code = _prepare_analysis_payload_sync(code)
     if status_code != 200:
         return prepared, status_code
-    payload, status_code = _analyze_prepared_payload_sync(prepared, diagnostics)
+    ephemeral = None
+    if override_model:
+        ephemeral = OMLXClient(model=override_model)
+    payload, status_code = _analyze_prepared_payload_sync(prepared, diagnostics, client=ephemeral)
     if status_code == 200:
         try:
-            client = get_client()
-            used_model = getattr(client, "model", "") or ""
+            if ephemeral is not None:
+                used_model = override_model
+            else:
+                used_model = getattr(get_client(), "model", "") or ""
         except Exception:
             used_model = ""
         save_analysis(
@@ -385,7 +396,11 @@ def _run_full_analysis_sync(code, diagnostics):
 
 
 async def analyze(request):
-    """Cache-first：命中直返；缺失/过期则同步跑一次并写 cache（首次访问不可避免的等待）。"""
+    """Cache-first：命中直返；缺失/过期则同步跑一次并写 cache（首次访问不可避免的等待）。
+
+    请求体支持 ``model`` 字段：网页端用户独立选择模型时传入，
+    后端构造临时 OMLXClient，不污染 bot_config.json / 不影响 trading_bot。
+    """
     try:
         body = await request.json()
     except Exception:
@@ -393,6 +408,7 @@ async def analyze(request):
     code = (body.get("code") or "").strip()
     if not code:
         return SafeJSONResponse({"error": "股票代码不能为空"}, status_code=400)
+    override_model = (body.get("model") or "").strip() or None
 
     # 1. 查 cache
     try:
@@ -411,16 +427,16 @@ async def analyze(request):
         diagnostics = {}
         async with _analyze_semaphore:
             payload, status_code = await run_in_threadpool(
-                _run_full_analysis_sync, code, diagnostics
+                _run_full_analysis_sync, code, diagnostics, override_model
             )
         return SafeJSONResponse(payload, status_code=status_code)
     except Exception as e:
         return SafeJSONResponse({"error": str(e)}, status_code=500)
 
 
-def _force_analysis_payload_sync(code):
+def _force_analysis_payload_sync(code, override_model=None):
     """强制重跑：忽略 cache，同步跑 AI 并写 cache。"""
-    return _run_full_analysis_sync(code, {"ai_error": None})
+    return _run_full_analysis_sync(code, {"ai_error": None}, override_model=override_model)
 
 
 async def analyze_force(request):
@@ -432,8 +448,9 @@ async def analyze_force(request):
     code = (body.get("code") or "").strip()
     if not code:
         return SafeJSONResponse({"error": "股票代码不能为空"}, status_code=400)
+    override_model = (body.get("model") or "").strip() or None
     try:
-        payload, status_code = await run_in_threadpool(_force_analysis_payload_sync, code)
+        payload, status_code = await run_in_threadpool(_force_analysis_payload_sync, code, override_model)
         return SafeJSONResponse({**payload, "forced": True}, status_code=status_code)
     except Exception as e:
         return SafeJSONResponse({"error": str(e)}, status_code=500)

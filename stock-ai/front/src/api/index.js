@@ -17,8 +17,11 @@ export const analyzeStock = (code, signal) =>
 export const getAnalysis = (code, signal) =>
   api.get(`/analysis/${code}`, { signal }).then(r => r.data);
 
-export const forceAnalyze = (code, signal) =>
-  aiApi.post('/analyze/force', { code }, { signal }).then(r => r.data);
+export const forceAnalyze = (code, signal, model = null) => {
+  const body = { code };
+  if (model) body.model = model;
+  return aiApi.post('/analyze/force', body, { signal }).then(r => r.data);
+};
 
 export const getPlanStatus = (signal) =>
   api.get('/analysis/plan/status', { signal }).then(r => r.data);

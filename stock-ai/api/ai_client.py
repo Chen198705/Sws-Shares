@@ -476,12 +476,14 @@ def analyze_with_fallback(
     indicators: dict,
     index_pct: float = 0.0,
     diagnostics: dict = None,
+    client=None,
 ) -> tuple[str, str, bool, str]:
     """
     返回 (analysis_text, action, used_ai, horizon)
     horizon: short | medium | long
     """
-    client = get_client()
+    if client is None:
+        client = get_client()
 
     def build_horizon_hint(ind):
         if not ind:

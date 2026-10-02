@@ -259,7 +259,7 @@ function extractAdvice(text) {
 }
 
 // ─── Analysis Result ───
-function AnalysisResult({ data }) {
+function AnalysisResult({ data, models = [], pageModel = '', onPageModelChange = () => {}, followModel = '' }) {
   if (!data) return null;
   if (data.error) return <div className="empty"><div className="empty-title">请求失败</div><div className="empty-sub text-muted">{data.error}</div></div>;
 
@@ -283,6 +283,30 @@ function AnalysisResult({ data }) {
       <div className="card">
         <div className="card-header">
           <span className="card-title"><AiIcon />AI 分析</span>
+          {models.length > 0 && (
+            <div className="page-model-picker" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>网页模型</span>
+              <select
+                value={pageModel || ''}
+                onChange={e => onPageModelChange(e.target.value)}
+                title="网页端 AI 分析模型（不影响沈万三）"
+                style={{
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  borderRadius: '4px',
+                  color: 'inherit',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  maxWidth: '160px',
+                  padding: '2px 6px',
+                }}
+              >
+                <option value="">跟随默认（{followModel || data.used_model || ''}）</option>
+                {models.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          )}
           <div className="analysis-head-summary">
             <span className={`analysis-chip signal-chip signal-${signal}`}>
               {signal === 'buy' ? '📈 买入信号' : signal === 'sell' ? '📉 卖出信号' : '⏸️ 观望'}
@@ -378,6 +402,11 @@ export default function App() {
   const [aiOnline, setAiOnline] = useState(null);
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState('');
+  // 网页端 AI 分析模型，独立选择，不影响沈万三 / bot_config.json。
+  // 留空表示跟随 selectedModel（即顶部右上角 / 沈万三当前模型）。
+  const [pageModel, setPageModel] = useState(() => {
+    try { return localStorage.getItem('sws_pageModel') || ''; } catch { return ''; }
+  });
   const [marketState, setMarketState] = useState({ open: false, message: '' });
   const [ruleVisible, setRuleVisible] = useState(false);
   const [botModel, setBotModel] = useState('');
@@ -587,7 +616,8 @@ export default function App() {
       body: JSON.stringify({ model }),
     }).then(r => r.json()).then(d => {
       if (d.error) { alert('切换失败: ' + d.error); return; }
-      // 后端把两处配置统一了：前端分析模型 = 沈万三默认模型，这里同步 UI 状态
+      // 顶部下拉与沈万三设置弹窗改的是同一个后端默认模型（bot_config.json），
+      // 仅同步二者 UI；网页端独立分析模型由 pageModel 管理，此处不触碰。
       const applied = d.model || model;
       setSelectedModel(applied);
       setBotModel(applied);
@@ -610,7 +640,8 @@ export default function App() {
     analysisAbortRef.current = controller;
     setLoading(true);
     setAnalysisData(null);
-    forceAnalyze(targetCode, controller.signal)
+    const pageModelToUse = (pageModel || '').trim();
+    forceAnalyze(targetCode, controller.signal, pageModelToUse || null)
       .then(d => {
         if (requestId !== analysisRequestRef.current) return;
         setAnalysisData(d);
@@ -622,8 +653,14 @@ export default function App() {
         setAnalysisData({ error: e.message });
         setLoading(false);
       });
-  }, [code]);
+  }, [code, pageModel]);
 
+
+  // 同步 pageModel 到 localStorage，跨刷新保留选择
+  const updatePageModel = useCallback((m) => {
+    setPageModel(m);
+    try { localStorage.setItem('sws_pageModel', m || ''); } catch {}
+  }, []);
 
   return (
     <div className="app">
@@ -637,11 +674,14 @@ export default function App() {
             <div className={`dot ${aiOnline === null ? 'checking' : aiOnline ? 'online' : 'offline'}`} />
             <span>{aiOnline === null ? 'AI检测中' : aiOnline ? 'AI在线 · ' : 'AI离线'}</span>
             {aiOnline && models.length > 0 && (
-              <select value={selectedModel} onChange={e => handleModelSwitch(e.target.value)}
-                style={{ background: 'transparent', border: 'none', color: 'inherit', fontSize: 'inherit', cursor: 'pointer', outline: 'none', maxWidth: '200px' }}
-                title="切换模型">
-                {models.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
+              <>
+                <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>沈万三</span>
+                <select value={selectedModel} onChange={e => handleModelSwitch(e.target.value)}
+                  style={{ background: 'transparent', border: 'none', color: 'inherit', fontSize: 'inherit', cursor: 'pointer', outline: 'none', maxWidth: '200px' }}
+                  title="沈万三后台默认模型（机器人执行用；网页分析的模型在 AI 分析卡片右上角单独选）">
+                  {models.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </>
             )}
           </div>
           <span style={{color: 'var(--text-muted)'}}>{new Date().toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
@@ -751,7 +791,13 @@ export default function App() {
                   正在重新分析，保留上次结果...
                 </div>
               )}
-              <AnalysisResult data={analysisData} />
+              <AnalysisResult
+                data={analysisData}
+                models={models}
+                pageModel={pageModel}
+                onPageModelChange={updatePageModel}
+                followModel={botModel}
+              />
             </div>
           ) : !loading && (
             <div className="empty">
@@ -792,7 +838,8 @@ export default function App() {
                   {models.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
                 <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'12px'}}>
-                  前端分析与沈万三共用该模型；沈万三每轮巡检自动热切换，无需重启
+                  此处只改沈万三后台默认模型，机器人每轮巡检自动热切换，无需重启。
+                  网页端 AI 分析用的模型在「AI 分析」卡片右上角的“网页模型”里单独选，两者互不影响。
                 </div>
               </div>
               <div className="modal-footer">
