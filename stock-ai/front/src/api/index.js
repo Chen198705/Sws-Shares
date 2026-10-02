@@ -12,6 +12,17 @@ export const getHistory = (code, days = 240, freq = 'day', signal) =>
 export const analyzeStock = (code, signal) =>
   aiApi.post('/analyze', { code }, { signal }).then(r => r.data);
 
+// Cache-first 改造：打开网页不再直接触发 AI 分析，
+// 先读后端 analysis_cache，命中直返；未命中进入轮询直到后台写盘。
+export const getAnalysis = (code, signal) =>
+  api.get(`/analysis/${code}`, { signal }).then(r => r.data);
+
+export const forceAnalyze = (code, signal) =>
+  aiApi.post('/analyze/force', { code }, { signal }).then(r => r.data);
+
+export const getPlanStatus = (signal) =>
+  api.get('/analysis/plan/status', { signal }).then(r => r.data);
+
 export const getStock = (code, signal) =>
   api.get(`/stock/${code}`, { signal }).then(r => r.data);
 

@@ -60,6 +60,7 @@ from industry_map import sector_concentration_ok
 from iteration_engine import run_iteration, iteration_running
 from market_scanner import scan_market, log_scan_result
 import market_calendar
+from analysis_planner import start_planner_thread
 
 LOG_DIR = Path(__file__).parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
@@ -133,16 +134,28 @@ def is_trading_hours():
     return ("0930" <= t <= "1130") or ("1300" <= t <= "1500")
 
 def seconds_to_open():
+    """距离下一次真实开盘的秒数。
+    法定节假日 / 周末按 JQData 交易日历判断；交易时段内返回 0。
+    修复前的 bug：节假日下午 13:00-15:00 的 t 在交易时段范围内，
+    函数直接 return 0，导致主循环 sleep(0) 死循环 + 模拟盘在休市日被
+    允许下单。正确顺序：先判交易日，再判时段。
+    """
     now = datetime.now()
     t = now.strftime("%H%M")
+    # 非交易日（含国庆/中秋等法定节假日）→ 跳到下一个真实交易日 09:30
+    # 必须先判这个，否则午间节假日会落到下面的时间范围判断里返回 0。
+    if not is_trading_day():
+        nxt = market_calendar.next_trading_day(now.date())
+        target = datetime.combine(nxt, datetime.min.time()).replace(hour=9, minute=30)
+        return max(0, int((target - now).total_seconds()))
     if "0930" <= t <= "1130" or "1300" <= t <= "1500":
         return 0
-    if is_trading_day() and t < "0930":
+    if t < "0930":
         target = now.replace(hour=9, minute=30, second=0)
-    elif is_trading_day() and t < "1300":
+    elif t < "1300":
         target = now.replace(hour=13, minute=0, second=0)
     else:
-        # 非交易日或收盘后：跳到下一个真实交易日的 09:30
+        # 交易日收盘后：跳到下一个交易日 09:30
         nxt = market_calendar.next_trading_day(now.date())
         target = datetime.combine(nxt, datetime.min.time()).replace(hour=9, minute=30)
     return max(0, int((target - now).total_seconds()))
@@ -547,6 +560,16 @@ def rebalance_oversized_positions(broker, params, skip_codes=None, status=None):
 
 
 def check_positions(client, broker):
+    # ── 防御性闸门：即使主循环的市场日历判断因缓存/竞态失效，
+    #    持仓检查入口也必须自己再校验一次，杜绝休市日 AI 复评触发卖出 ──
+    if not is_trading_day():
+        ts = datetime.now().strftime("%H:%M")
+        print(f"  [check_positions] {ts} 非交易日，跳过持仓检查（防御闸门）")
+        return False
+    if not is_trading_hours():
+        ts = datetime.now().strftime("%H:%M")
+        print(f"  [check_positions] {ts} 非交易时段，跳过持仓检查（防御闸门）")
+        return False
     params = get_effective_params()
     status = get_trading_status()
     action_taken = False
@@ -972,6 +995,18 @@ def get_recommend_top():
 def startup_warmup(client, broker):
     """启动时检查网络和模型，完成后做默认股预分析"""
     import urllib.request
+
+    # ── 节假日 bypass ──────────────────────────────────────────
+    # 节假日 bot 不会开仓/复评，根本不需要预热 oMLX；先前节假日 oMLX
+    # 偶发 502 / keep-alive 卡死时，预热阶段会死锁在 __select，主线程
+    # 永不返回，整个 while 反复 60s 重试也会在日志里留下大量噪声。
+    # 正确做法：节假日直接放行，让 main_loop 跳出外层 while，进入主
+    # 循环后由 is_trading_day() 闸门负责"非交易日 ... 休眠"分流。
+    if not market_calendar.is_trading_day():
+        print('[启动预热] 节假日跳过预热，主循环将进入"非交易日"休眠分支')
+        return True
+    # ──────────────────────────────────────────────────────────
+
     print('\n[启动预热] 检查网络连通性...')
     net_ok = False
     try:
@@ -1032,6 +1067,10 @@ def main_loop(stop_event):
     print(f"迭代触发: 满 {params.observation_trades_threshold} 笔观察 / 满 {params.adjust_trades_threshold} 笔复核调参")
     print(f"迭代水位: 上次观察卖单 id={params.last_iterated_sell_id}，上次复核卖单 id={params.last_reviewed_sell_id}")
     Thread(target=run_scheduled_reports, args=(stop_event,), daemon=True).start()
+    # 后台分析计划调度：把持仓 + 候选股按节奏入队，结果写 cache，
+    # 前端只读 cache 不再每次打开都付 30-60s AI 等待
+    start_planner_thread(broker)
+    print("分析计划调度已启动（30s/tick）")
     scan_rounds = MARKET_SCAN_INTERVAL // POSITION_CHECK_INTERVAL
     scan_round = 0  # 0 表示本轮执行全市场扫描
     while not stop_event.is_set():

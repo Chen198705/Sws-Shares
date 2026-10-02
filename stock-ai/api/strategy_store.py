@@ -523,6 +523,196 @@ def set_circuit_break(days: int) -> str:
     return until
 
 
+
+
+# ============================================================================
+# 分析结论缓存 + 分析计划队列
+#
+# 设计目标：把"打开网页就触发 AI 分析"改成"后台按计划预分析，结果存到 cache，
+# 网页只读 cache"。避免每次打开/选股都付 30-60s AI 等待。
+# ============================================================================
+
+# 不同 horizon 的 cache 过期时间（秒）：短线短、中线中、长线长
+_ANALYSIS_TTL_SECONDS = {
+    "short": 300,     # 短线 5 分钟（盘口变化快）
+    "mid": 1200,      # 中线 20 分钟
+    "long": 3600,     # 长线 1 小时
+    "unknown": 600,   # 默认 10 分钟
+}
+
+
+def init_analysis_schema():
+    """分析 cache + 队列表。与 init_schema 并存，幂等可重复调用。"""
+    c = _conn()
+    c.execute("""CREATE TABLE IF NOT EXISTS analysis_cache (
+        code TEXT PRIMARY KEY,
+        stock_snapshot TEXT,
+        indicators TEXT,
+        analysis_text TEXT,
+        action TEXT,
+        horizon TEXT,
+        used_model TEXT,
+        used_ai INTEGER,
+        ai_error TEXT,
+        created_at TEXT,
+        expires_at TEXT,
+        is_stale INTEGER DEFAULT 0)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS analysis_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT,
+        priority INTEGER DEFAULT 5,
+        reason TEXT,
+        queued_at TEXT,
+        started_at TEXT,
+        finished_at TEXT,
+        status TEXT DEFAULT 'pending',
+        error TEXT DEFAULT '')""")
+    # 部分唯一索引：同一 code 在 pending 状态下只占一行
+    c.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_unique_pending
+        ON analysis_queue(code) WHERE status='pending'""")
+    # 部分索引：调度器按优先级 + 时间拉取
+    c.execute("""CREATE INDEX IF NOT EXISTS idx_queue_priority
+        ON analysis_queue(priority DESC, queued_at ASC) WHERE status='pending'""")
+    c.commit()
+    c.close()
+
+
+def _analysis_ttl_for(horizon: str) -> int:
+    return _ANALYSIS_TTL_SECONDS.get((horizon or "").lower(), _ANALYSIS_TTL_SECONDS["unknown"])
+
+
+def get_cached_analysis(code: str):
+    """读 cache。返回 dict 或 None（不存在）。返回的 dict 里有 is_stale 标记。"""
+    c = _conn()
+    row = c.execute("""SELECT code, stock_snapshot, indicators, analysis_text,
+                              action, horizon, used_model, used_ai, ai_error,
+                              created_at, expires_at, is_stale
+                       FROM analysis_cache WHERE code=?""", (code,)).fetchone()
+    c.close()
+    if not row:
+        return None
+    now = datetime.now()
+    try:
+        expires_dt = datetime.fromisoformat(row[10]) if row[10] else now
+        created_dt = datetime.fromisoformat(row[9]) if row[9] else now
+    except Exception:
+        expires_dt = now
+        created_dt = now
+    is_stale = bool(row[11]) or expires_dt < now
+    return {
+        "code": row[0],
+        "stock_snapshot": json.loads(row[1]) if row[1] else None,
+        "indicators": json.loads(row[2]) if row[2] else None,
+        "analysis_text": row[3],
+        "action": row[4],
+        "horizon": row[5],
+        "used_model": row[6],
+        "used_ai": bool(row[7]),
+        "ai_error": row[8],
+        "created_at": row[9],
+        "expires_at": row[10],
+        "is_stale": is_stale,
+        "age_seconds": max(0.0, (now - created_dt).total_seconds()),
+    }
+
+
+def save_analysis(code: str, stock_snapshot: dict, indicators: dict,
+                  analysis_text: str, action: str, horizon: str,
+                  used_model: str, used_ai: bool, ai_error: str = "") -> None:
+    """写入或覆盖 cache。按 horizon 决定 expires_at，is_stale 重置为 0。"""
+    ttl = _analysis_ttl_for(horizon)
+    now = datetime.now()
+    expires = now + timedelta(seconds=ttl)
+    c = _conn()
+    c.execute("""INSERT OR REPLACE INTO analysis_cache
+        (code, stock_snapshot, indicators, analysis_text, action, horizon,
+         used_model, used_ai, ai_error, created_at, expires_at, is_stale)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,0)""",
+        (code, json.dumps(stock_snapshot or {}, ensure_ascii=False, default=str),
+         json.dumps(indicators or {}, ensure_ascii=False, default=str),
+         analysis_text or "", action or "hold", horizon or "unknown",
+         used_model or "", 1 if used_ai else 0, ai_error or "",
+         now.isoformat(), expires.isoformat()))
+    c.commit()
+    c.close()
+
+
+def enqueue_analysis(code: str, reason: str = "scheduled", priority: int = 5) -> bool:
+    """把 code 加入待分析队列；同一 code 在 pending 状态下不重复（部分唯一索引）。"""
+    c = _conn()
+    try:
+        c.execute("""INSERT INTO analysis_queue (code, priority, reason, queued_at, status)
+                     VALUES (?,?,?,?, 'pending')""",
+                  (code, int(priority), reason or "scheduled", datetime.now().isoformat()))
+        c.commit()
+        c.close()
+        return True
+    except sqlite3.IntegrityError:
+        c.close()
+        return False
+
+
+def claim_next_queued():
+    """原子地取出一条 pending，标 running。返回 {'id','code','reason','priority'} 或 None。"""
+    c = _conn()
+    try:
+        row = c.execute("""SELECT id, code, reason, priority FROM analysis_queue
+                           WHERE status='pending'
+                           ORDER BY priority DESC, queued_at ASC
+                           LIMIT 1""").fetchone()
+        if not row:
+            return None
+        cid, code, reason, priority = row
+        c.execute("UPDATE analysis_queue SET status='running', started_at=? WHERE id=?",
+                  (datetime.now().isoformat(), cid))
+        c.commit()
+        return {"id": cid, "code": code, "reason": reason, "priority": priority}
+    finally:
+        c.close()
+
+
+def mark_queue_done(queue_id: int, error: str = "") -> None:
+    """标记完成。error 非空时标 failed。"""
+    c = _conn()
+    status = "failed" if error else "done"
+    c.execute("UPDATE analysis_queue SET status=?, finished_at=?, error=? WHERE id=?",
+              (status, datetime.now().isoformat(), error or "", queue_id))
+    c.commit()
+    c.close()
+
+
+def queue_stats() -> dict:
+    c = _conn()
+    pending = c.execute("SELECT COUNT(*) FROM analysis_queue WHERE status='pending'").fetchone()[0]
+    running = c.execute("SELECT COUNT(*) FROM analysis_queue WHERE status='running'").fetchone()[0]
+    failed = c.execute("SELECT COUNT(*) FROM analysis_queue WHERE status='failed'").fetchone()[0]
+    c.close()
+    return {"pending": pending, "running": running, "failed": failed}
+
+
+def list_pending_codes(limit: int = 50) -> list:
+    """调试/展示用：列出当前 pending 队列的 code。"""
+    c = _conn()
+    rows = c.execute("""SELECT code, priority, reason, queued_at FROM analysis_queue
+                        WHERE status='pending'
+                        ORDER BY priority DESC, queued_at ASC
+                        LIMIT ?""", (limit,)).fetchall()
+    c.close()
+    return [{"code": r[0], "priority": r[1], "reason": r[2], "queued_at": r[3]} for r in rows]
+
+
+def expire_stale_analyses() -> int:
+    """把所有 expires_at < now 的 cache 标记为 stale，返回受影响行数。"""
+    c = _conn()
+    c.execute("UPDATE analysis_cache SET is_stale=1 WHERE expires_at < ? AND is_stale=0",
+              (datetime.now().isoformat(),))
+    changed = c.total_changes
+    c.commit()
+    c.close()
+    return changed
+
+
+
 if __name__ == "__main__":
     init_schema()
     p = load_params()

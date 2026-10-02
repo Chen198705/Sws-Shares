@@ -24,6 +24,10 @@ from broker_adapter import get_broker
 from trader import get_trading_status
 from strategy_store import get_strategy_summary
 from strategy_store import get_effective_params
+from strategy_store import get_cached_analysis, enqueue_analysis, save_analysis, queue_stats
+from strategy_store import init_analysis_schema as init_analysis_schema
+import market_calendar  # noqa: F401  (kept for is_market_open and shutdown freeze)
+init_analysis_schema()  # 启动时建表（analysis_cache / analysis_queue），幂等可重入
 from config import OMLX_BASE_URL, OMLX_API_KEY, OMLX_MODEL
 from config import EXTRA_LLM_MODELS
 from config import HIDE_LLM_MODELS
@@ -333,28 +337,133 @@ def _analyze_prepared_payload_sync(prepared: dict, diagnostics: dict):
     }, 200
 
 
+def _cache_to_payload(cached, code):
+    return {
+        "analysis": cached.get("analysis_text") or "",
+        "action": cached.get("action") or "hold",
+        "used_ai": cached.get("used_ai", False),
+        "horizon": cached.get("horizon") or "unknown",
+        "ai_error": cached.get("ai_error"),
+        "stock": cached.get("stock_snapshot") or {},
+        "indicators": cached.get("indicators") or {},
+        "from_cache": True,
+        "is_stale": cached.get("is_stale", False),
+        "age_seconds": cached.get("age_seconds", 0),
+        "used_model": cached.get("used_model", ""),
+        "code": code,
+    }
+
+
+def _run_full_analysis_sync(code, diagnostics):
+    """同步跑一次完整 AI 分析并写 cache。返回 (payload, status)。"""
+    prepared, status_code = _prepare_analysis_payload_sync(code)
+    if status_code != 200:
+        return prepared, status_code
+    payload, status_code = _analyze_prepared_payload_sync(prepared, diagnostics)
+    if status_code == 200:
+        try:
+            client = get_client()
+            used_model = getattr(client, "model", "") or ""
+        except Exception:
+            used_model = ""
+        save_analysis(
+            code=code,
+            stock_snapshot=payload.get("stock") or {},
+            indicators=payload.get("indicators") or {},
+            analysis_text=payload.get("analysis", ""),
+            action=payload.get("action", "hold"),
+            horizon=payload.get("horizon", "unknown"),
+            used_model=used_model,
+            used_ai=bool(payload.get("used_ai", False)),
+            ai_error=payload.get("ai_error") or "",
+        )
+        payload["from_cache"] = False
+        payload["is_stale"] = False
+        payload["age_seconds"] = 0
+        payload["used_model"] = used_model
+    return payload, status_code
+
+
 async def analyze(request):
+    """Cache-first：命中直返；缺失/过期则同步跑一次并写 cache（首次访问不可避免的等待）。"""
     try:
         body = await request.json()
-    except:
+    except Exception:
         return SafeJSONResponse({"error": "invalid body"}, status_code=400)
-    code = body.get("code", "").strip()
+    code = (body.get("code") or "").strip()
     if not code:
         return SafeJSONResponse({"error": "股票代码不能为空"}, status_code=400)
+
+    # 1. 查 cache
     try:
-        prepared, status_code = await run_in_threadpool(_prepare_analysis_payload_sync, code)
-        if status_code != 200:
-            return SafeJSONResponse(prepared, status_code=status_code)
+        cached = await run_in_threadpool(get_cached_analysis, code)
+    except Exception:
+        cached = None
+    if cached and not cached.get("is_stale"):
+        return SafeJSONResponse(_cache_to_payload(cached, code))
+
+    # 2. cache miss / 过期：入队 + 同步跑一次（首次仍要等，但后台也排上了）
+    try:
+        await run_in_threadpool(enqueue_analysis, code, reason="user_view", priority=8)
+    except Exception:
+        pass
+    try:
         diagnostics = {}
         async with _analyze_semaphore:
             payload, status_code = await run_in_threadpool(
-                _analyze_prepared_payload_sync,
-                prepared,
-                diagnostics,
+                _run_full_analysis_sync, code, diagnostics
             )
         return SafeJSONResponse(payload, status_code=status_code)
     except Exception as e:
         return SafeJSONResponse({"error": str(e)}, status_code=500)
+
+
+def _force_analysis_payload_sync(code):
+    """强制重跑：忽略 cache，同步跑 AI 并写 cache。"""
+    return _run_full_analysis_sync(code, {"ai_error": None})
+
+
+async def analyze_force(request):
+    """POST /api/analyze/force —— 用户点"分析"按钮触发。"""
+    try:
+        body = await request.json()
+    except Exception:
+        return SafeJSONResponse({"error": "invalid body"}, status_code=400)
+    code = (body.get("code") or "").strip()
+    if not code:
+        return SafeJSONResponse({"error": "股票代码不能为空"}, status_code=400)
+    try:
+        payload, status_code = await run_in_threadpool(_force_analysis_payload_sync, code)
+        return SafeJSONResponse({**payload, "forced": True}, status_code=status_code)
+    except Exception as e:
+        return SafeJSONResponse({"error": str(e)}, status_code=500)
+
+
+async def analysis_get(request):
+    """GET /api/analysis/{code} —— 纯读 cache，不调 AI。"""
+    code = request.path_params.get("code", "").strip()
+    if not code:
+        return SafeJSONResponse({"error": "股票代码不能为空"}, status_code=400)
+    try:
+        cached = await run_in_threadpool(get_cached_analysis, code)
+    except Exception as e:
+        return SafeJSONResponse({"error": str(e)}, status_code=500)
+    if not cached:
+        try:
+            await run_in_threadpool(enqueue_analysis, code, reason="user_view", priority=8)
+        except Exception:
+            pass
+        return SafeJSONResponse({"code": code, "pending": True, "exists": False}, status_code=202)
+    return SafeJSONResponse({**_cache_to_payload(cached, code), "pending": False, "exists": True})
+
+
+async def analysis_plan_status(request):
+    """GET /api/analysis/plan/status —— 返回队列统计。"""
+    try:
+        stats = await run_in_threadpool(queue_stats)
+    except Exception as e:
+        return SafeJSONResponse({"error": str(e)}, status_code=500)
+    return SafeJSONResponse({"queue": stats, "ok": True})
 
 def _serialize_order(order):
     return {
@@ -733,6 +842,9 @@ routes = [
     Route("/api/stock/{code}", stock),
     Route("/api/history/{code}", history),
     Route("/api/analyze", analyze, methods=["POST"]),
+    Route("/api/analyze/force", analyze_force, methods=["POST"]),
+    Route("/api/analysis/{code}", analysis_get),
+    Route("/api/analysis/plan/status", analysis_plan_status),
     Route("/api/portfolio", portfolio),
     Route("/api/orders", orders),
     Route("/api/orders/stats", order_stats),

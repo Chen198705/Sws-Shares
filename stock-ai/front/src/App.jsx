@@ -6,6 +6,8 @@ import StockChart from './components/StockChart';
 import RightPanel from './components/RightPanel';
 import {
   analyzeStock,
+  getAnalysis,
+  forceAnalyze,
   getStock,
   getHistory,
   setBotModel as persistBotModel,
@@ -265,6 +267,15 @@ function AnalysisResult({ data }) {
   const signal = data.action || parseSignal(analysis || '');
   const cycle = horizonLabel(data.horizon);
   const advice = extractAdvice(analysis || '');
+  // Cache-first 改造：从分析计划读出的结论带 age_seconds（后端 NOW - 分析时间），
+  // 让用户能直观看到这份结论是新出的还是缓存的。
+  const age = Number.isFinite(data.age_seconds) ? data.age_seconds : null;
+  let ageText = '';
+  if (age !== null) {
+    if (age < 60) ageText = `${age} 秒前`;
+    else if (age < 3600) ageText = `${Math.floor(age / 60)} 分 ${age % 60} 秒前`;
+    else ageText = `${Math.floor(age / 3600)} 小时 ${Math.floor((age % 3600) / 60)} 分前`;
+  }
 
   return (
     <div>
@@ -281,6 +292,11 @@ function AnalysisResult({ data }) {
           </div>
         </div>
         <div className="card-body">
+          {age !== null && (
+            <div style={{fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px'}}>
+              数据更新于 {ageText}
+            </div>
+          )}
           <div className="analysis-box">{analysis || '分析中...'}</div>
         </div>
       </div>
@@ -345,6 +361,7 @@ export default function App() {
   const analysisRequestRef = useRef(0);
   const manualAnalysisCodeRef = useRef('');
   const signalModeRef = useRef(false);
+  const pollTimerRef = useRef(null);
   const [readyCode, setReadyCode] = useState('');
   const [stockSnapshot, setStockSnapshot] = useState({
     code: '',
@@ -503,35 +520,62 @@ export default function App() {
     };
   }, [code]);
 
-  // 行情和日线先完成，再启动 AI 分析，避免首屏请求互相阻塞。
+  // Cache-first：行情和日线先完成，再读 analysis_cache；命中直返，miss 进入 5s 轮询直到命中。
+  // 切换 code 时清掉上一轮的 interval，避免旧 code 写覆盖。
   useEffect(() => {
     if (!code || readyCode !== code || signalModeRef.current) return;
     if (manualAnalysisCodeRef.current === code) {
       manualAnalysisCodeRef.current = '';
       return;
     }
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
     const controller = new AbortController();
     const requestId = ++analysisRequestRef.current;
     analysisAbortRef.current = controller;
-    const timer = setTimeout(() => {
-      setLoading(true);
-      setAnalysisData(null);
-      analyzeStock(code, controller.signal)
-        .then(d => {
-          if (requestId !== analysisRequestRef.current) return;
+    setLoading(true);
+    setAnalysisData(null);
+    getAnalysis(code, controller.signal)
+      .then(d => {
+        if (requestId !== analysisRequestRef.current) return;
+        if (d && d.exists && !d.pending) {
           setAnalysisData(d);
           setLoading(false);
-        })
-        .catch(e => {
+          return;
+        }
+        // cache miss / pending：进入 5s 轮询直到命中
+        const poll = () => {
           if (requestId !== analysisRequestRef.current) return;
-          if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') return;
-          setAnalysisData({ error: e.message });
-          setLoading(false);
-        });
-    }, 0);
+          getAnalysis(code, controller.signal)
+            .then(p => {
+              if (requestId !== analysisRequestRef.current) return;
+              if (p && p.exists && !p.pending) {
+                setAnalysisData(p);
+                setLoading(false);
+                if (pollTimerRef.current) {
+                  clearInterval(pollTimerRef.current);
+                  pollTimerRef.current = null;
+                }
+              }
+            })
+            .catch(() => {});
+        };
+        pollTimerRef.current = setInterval(poll, 5000);
+      })
+      .catch(e => {
+        if (requestId !== analysisRequestRef.current) return;
+        if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') return;
+        setAnalysisData({ error: e.message });
+        setLoading(false);
+      });
     return () => {
-      clearTimeout(timer);
       controller.abort();
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
     };
   }, [code, readyCode]);
 
@@ -556,12 +600,17 @@ export default function App() {
     if (!targetCode) return;
     manualAnalysisCodeRef.current = targetCode;
     analysisAbortRef.current?.abort();
+    // 取消任何后台轮询，强制重跑时会直接拿到 force 结果
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
     const controller = new AbortController();
     const requestId = ++analysisRequestRef.current;
     analysisAbortRef.current = controller;
     setLoading(true);
     setAnalysisData(null);
-    analyzeStock(targetCode, controller.signal)
+    forceAnalyze(targetCode, controller.signal)
       .then(d => {
         if (requestId !== analysisRequestRef.current) return;
         setAnalysisData(d);
