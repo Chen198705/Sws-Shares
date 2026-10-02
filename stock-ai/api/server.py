@@ -927,6 +927,17 @@ async def _warmup_ai_async():
 @asynccontextmanager
 async def lifespan(app):
     warmup_task = asyncio.create_task(_warmup_ai_async())
+    # 后台分析计划调度：把"打开网页 → AI 分析"拆成"后台预分析 → 写 cache → 浏览器读 cache"。
+    # 启动在 API 进程内，不依赖 bot；节假日也持续填充，节后首屏秒开。
+    try:
+        from analysis_planner import start_planner_thread
+        t = start_planner_thread()
+        if t is not None:
+            print(f"[lifespan] analysis_planner 启动 · tick=30s · daemon={t.daemon}")
+        else:
+            print("[lifespan] analysis_planner 已启动（幂等，跳过）")
+    except Exception as e:
+        print(f"[lifespan] analysis_planner 启动失败: {e}")
     yield
     if not warmup_task.done():
         warmup_task.cancel()
