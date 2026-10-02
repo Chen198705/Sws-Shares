@@ -415,9 +415,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [aiOnline, setAiOnline] = useState(null);
   const [models, setModels] = useState([]);
-  const [selectedModel, setSelectedModel] = useState('');
   // 网页端 AI 分析模型，独立选择，不影响沈万三 / bot_config.json。
-  // 首次没有历史选择时，也会落成一个真实模型值，绝不回退到 selectedModel。
+  // 首次没有历史选择时，也会落成一个真实模型值，绝不回退到沈万三后台模型。
   const [pageModel, setPageModel] = useState(readStoredPageModel);
   const [marketState, setMarketState] = useState({ open: false, message: '' });
   const [ruleVisible, setRuleVisible] = useState(false);
@@ -482,7 +481,6 @@ export default function App() {
         .then(d => {
           const available = Array.isArray(d.models) ? d.models : [];
           setModels(available);
-          setSelectedModel(prev => (prev && available.includes(prev) ? prev : d.current || available[0] || ''));
           setPageModel(prev => {
             if (prev && available.includes(prev)) return prev;
             const next = pickIndependentPageModel(available, d.current || '');
@@ -627,23 +625,6 @@ export default function App() {
     };
   }, [code, readyCode]);
 
- const handleModelSwitch = useCallback((model) => {
-    setSelectedModel(model);
-    fetch('/api/model/switch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model }),
-    }).then(r => r.json()).then(d => {
-      if (d.error) { alert('切换失败: ' + d.error); return; }
-      // 顶部下拉与沈万三设置弹窗改的是同一个后端默认模型（bot_config.json），
-      // 仅同步二者 UI；网页端独立分析模型由 pageModel 管理，此处不触碰。
-      const applied = d.model || model;
-      setSelectedModel(applied);
-      setBotModel(applied);
-      setBotModelPending(applied);
-    }).catch(() => alert('切换失败'));
-  }, []);
-
   const doAnalyze = useCallback((c) => {
     const targetCode = c || code;
     if (!targetCode) return;
@@ -699,10 +680,10 @@ export default function App() {
             <span>{aiOnline === null ? 'AI检测中' : aiOnline ? 'AI在线 · ' : 'AI离线'}</span>
             {aiOnline && models.length > 0 && (
               <>
-                <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>沈万三</span>
-                <select value={selectedModel} onChange={e => handleModelSwitch(e.target.value)}
+                <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>网页</span>
+                <select value={pageModel} onChange={e => updatePageModel(e.target.value)}
                   style={{ background: 'transparent', border: 'none', color: 'inherit', fontSize: 'inherit', cursor: 'pointer', outline: 'none', maxWidth: '200px' }}
-                  title="沈万三后台默认模型（机器人执行用；网页分析的模型在 AI 分析卡片右上角单独选）">
+                  title="网页端 AI 分析模型（不修改沈万三后台默认模型）">
                   {models.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
               </>
@@ -876,7 +857,6 @@ export default function App() {
                     try {
                       await persistBotModel(botModelPending);
                       setBotModel(botModelPending);
-                      setSelectedModel(botModelPending); // 与顶部模型选择保持一致
                       setBotSettingsOpen(false);
                     } catch(e) {
                       alert('设置失败: ' + e.message);
