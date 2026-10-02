@@ -25,6 +25,20 @@ const DEFAULT_HOT_STOCKS = [
   { code: '002475', name: '立讯精密' },
 ];
 
+const PAGE_MODEL_STORAGE_KEY = 'sws_pageModel';
+const PAGE_MODEL_PREFERRED = 'Qwen3.6-35B-A3B-4bit';
+
+function readStoredPageModel() {
+  try { return localStorage.getItem(PAGE_MODEL_STORAGE_KEY) || ''; } catch { return ''; }
+}
+
+function pickIndependentPageModel(models, backendModel) {
+  if (!Array.isArray(models) || models.length === 0) return '';
+  if (models.includes(PAGE_MODEL_PREFERRED)) return PAGE_MODEL_PREFERRED;
+  const differentFromBackend = models.find(m => m !== backendModel);
+  return differentFromBackend || models[0] || '';
+}
+
 // ─── Logo SVG ───
 function LogoMark() {
   return (
@@ -259,7 +273,7 @@ function extractAdvice(text) {
 }
 
 // ─── Analysis Result ───
-function AnalysisResult({ data, models = [], pageModel = '', onPageModelChange = () => {}, followModel = '' }) {
+function AnalysisResult({ data, models = [], pageModel = '', onPageModelChange = () => {} }) {
   if (!data) return null;
   if (data.error) return <div className="empty"><div className="empty-title">请求失败</div><div className="empty-sub text-muted">{data.error}</div></div>;
 
@@ -302,7 +316,7 @@ function AnalysisResult({ data, models = [], pageModel = '', onPageModelChange =
                   padding: '2px 6px',
                 }}
               >
-                <option value="">跟随默认（{followModel || data.used_model || ''}）</option>
+                {!pageModel && <option value="" disabled>请选择模型</option>}
                 {models.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
@@ -403,10 +417,8 @@ export default function App() {
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState('');
   // 网页端 AI 分析模型，独立选择，不影响沈万三 / bot_config.json。
-  // 留空表示跟随 selectedModel（即顶部右上角 / 沈万三当前模型）。
-  const [pageModel, setPageModel] = useState(() => {
-    try { return localStorage.getItem('sws_pageModel') || ''; } catch { return ''; }
-  });
+  // 首次没有历史选择时，也会落成一个真实模型值，绝不回退到 selectedModel。
+  const [pageModel, setPageModel] = useState(readStoredPageModel);
   const [marketState, setMarketState] = useState({ open: false, message: '' });
   const [ruleVisible, setRuleVisible] = useState(false);
   const [botModel, setBotModel] = useState('');
@@ -468,8 +480,15 @@ export default function App() {
       fetch('/api/models')
         .then(r => r.json())
         .then(d => {
-          setModels(d.models || []);
-          setSelectedModel(prev => prev || d.current || '');
+          const available = Array.isArray(d.models) ? d.models : [];
+          setModels(available);
+          setSelectedModel(prev => (prev && available.includes(prev) ? prev : d.current || available[0] || ''));
+          setPageModel(prev => {
+            if (prev && available.includes(prev)) return prev;
+            const next = pickIndependentPageModel(available, d.current || '');
+            try { localStorage.setItem(PAGE_MODEL_STORAGE_KEY, next); } catch {}
+            return next;
+          });
         })
         .catch(() => {});
       scheduleHealth(0);
@@ -641,7 +660,12 @@ export default function App() {
     setLoading(true);
     setAnalysisData(null);
     const pageModelToUse = (pageModel || '').trim();
-    forceAnalyze(targetCode, controller.signal, pageModelToUse || null)
+    if (!pageModelToUse) {
+      setAnalysisData({ error: '网页模型列表尚未加载，请稍后重试' });
+      setLoading(false);
+      return;
+    }
+    forceAnalyze(targetCode, controller.signal, pageModelToUse)
       .then(d => {
         if (requestId !== analysisRequestRef.current) return;
         setAnalysisData(d);
@@ -659,7 +683,7 @@ export default function App() {
   // 同步 pageModel 到 localStorage，跨刷新保留选择
   const updatePageModel = useCallback((m) => {
     setPageModel(m);
-    try { localStorage.setItem('sws_pageModel', m || ''); } catch {}
+    try { localStorage.setItem(PAGE_MODEL_STORAGE_KEY, m || ''); } catch {}
   }, []);
 
   return (
@@ -796,7 +820,6 @@ export default function App() {
                 models={models}
                 pageModel={pageModel}
                 onPageModelChange={updatePageModel}
-                followModel={botModel}
               />
             </div>
           ) : !loading && (

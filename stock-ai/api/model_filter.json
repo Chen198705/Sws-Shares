@@ -1,0 +1,7 @@
+{
+  "_note": "模型下拉过滤规则。allow 白名单优先；hide 精确剔除；exclude_tokens 整词剔除；exclude_keywords 子串剔除。后两者是在内置默认规则上的追加，不是替换。改完即时生效，无需重启。",
+  "allow": [],
+  "hide": [],
+  "exclude_tokens": [],
+  "exclude_keywords": []
+}

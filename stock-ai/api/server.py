@@ -31,6 +31,7 @@ init_analysis_schema()  # 启动时建表（analysis_cache / analysis_queue）�
 from config import OMLX_BASE_URL, OMLX_API_KEY, OMLX_MODEL
 from config import EXTRA_LLM_MODELS
 from config import HIDE_LLM_MODELS
+from model_filter import filter_models, rule_summary
 import market_calendar
 
 
@@ -224,13 +225,13 @@ def _fetch_remote_models(force=False):
 
 
 def _build_model_list(all_models):
-    # 非通用 chat LLM：Embedding / OCR / Whisper / ASR / TTS / Rerank /
-    # Dflash（推测解码架构）/ MTP（多 token 预测变体，如 MTPLX）
-    llm_exclude = ["embedding", "bge-", "ocr", "whisper", "asr", "tts", "rerank", "dflash", "mtp"]
-    model_list = [m for m in all_models if not any(e in m.lower() for e in llm_exclude)]
+    # 非通用 chat LLM（Embedding / OCR / ASR / 视觉 / 图像 / 视频 / 非 chat 架构）
+    # 由 model_filter 统一裁定，规则可在 model_filter.json 里增删，无需改代码。
+    model_list, _dropped = filter_models(all_models)
     if HIDE_LLM_MODELS:
         model_list = [m for m in model_list if m not in HIDE_LLM_MODELS]
-    # current 以持久化配置为准：前端下拉、沈万三配置、API 分析共用同一个值。
+    # current 以持久化配置为准：沈万三后台下拉、配置弹窗、后台分析共用；
+    # 网页端 AI 分析可在请求里用 model override，不写回这里。
     current = get_bot_config().get("model") or get_client().model
     for m in EXTRA_LLM_MODELS:
         if m not in model_list:
@@ -248,6 +249,26 @@ async def models_list(request):
         return JSONResponse({"models": model_list, "current": current})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def model_filter_info(request):
+    """只读诊断：当前过滤规则 + 上游模型被剔除的原因。"""
+    try:
+        loop = asyncio.get_running_loop()
+        all_models = await loop.run_in_executor(None, _fetch_remote_models)
+        kept, dropped = filter_models(all_models)
+        hidden = [m for m in kept if m in HIDE_LLM_MODELS]
+        visible = [m for m in kept if m not in HIDE_LLM_MODELS]
+        return SafeJSONResponse({
+            "rules": rule_summary(),
+            "upstream_total": len(all_models),
+            "visible": sorted(visible),
+            "excluded_by_rules": dropped,
+            "excluded_by_hide_list": sorted(hidden),
+        })
+    except Exception as e:
+        return SafeJSONResponse({"error": str(e)}, status_code=500)
+
 
 async def model_switch(request):
     try:
@@ -853,6 +874,7 @@ async def research_status(request):
 routes = [
     Route("/api/health", health),
     Route("/api/models", models_list),
+    Route("/api/model-filter", model_filter_info),
     Route("/api/model/switch", model_switch, methods=["POST"]),
     Route("/api/market-status", market_status),
     Route("/api/indices", indices),
