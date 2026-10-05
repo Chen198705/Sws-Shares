@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.shenwansan.close-check</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/chenjianhui/AI/Sws-Shares/stock-ai/api/.venv/bin/python3</string>
+        <string>/Users/chenjianhui/AI/Sws-Shares/stock-ai/api/scripts/daily_check.py</string>
+        <string>--phase</string>
+        <string>close</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/chenjianhui/AI/Sws-Shares/stock-ai/api</string>
+    <key>StartCalendarInterval</key>
+    <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>45</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>45</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>45</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>45</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>45</integer></dict>
+    </array>
+    <key>StandardOutPath</key>
+    <string>/Users/chenjianhui/AI/Sws-Shares/stock-ai/api/logs/daily_check_close.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/chenjianhui/AI/Sws-Shares/stock-ai/api/logs/daily_check_close.log</string>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

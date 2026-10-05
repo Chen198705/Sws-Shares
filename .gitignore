@@ -26,3 +26,6 @@ _bak_*/
 **/*.bak.*
 research/data/cache/
 research/**/results/*_nav.csv
+
+# 部署用 LaunchAgent plist（包含 webhook 等敏感 env，不入库）
+stock-ai/api/scripts/com.shenwansan.*.plist
