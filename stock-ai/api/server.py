@@ -796,18 +796,62 @@ def save_bot_config(cfg):
         os.replace(tmp, BOT_CONFIG_PATH)
 
 
+def _persist_env_model(model: str) -> bool:
+    """把 model 写回 .env 的 OMLX_MODEL= 行。
+
+    服务重启后 warmup 走 OMLXClient() __init__ → self.model = OMLX_MODEL，
+    OMLX_MODEL 来自 config.py → load_dotenv()，所以这里必须把模型名落盘，
+    否则下次重启又把 .env 里的旧值（如 Qwen3.6-35B-A3B-4bit）换入显存。
+    其他 key 一律保留原样；缺失 OMLX_MODEL 行则追加到尾部；原子写。
+    """
+    env_path = Path(__file__).parent / ".env"
+    if not env_path.exists():
+        return False
+    try:
+        text = env_path.read_text()
+        new_line = f"OMLX_MODEL={model}"
+        lines = text.splitlines(keepends=True)
+        replaced = False
+        for i, ln in enumerate(lines):
+            stripped = ln.lstrip()
+            # 同时覆盖 OMLX_MODEL / OMLX_META_MODEL / OLLAMA_MODEL，
+            # config._env_first 按顺序取第一个非空，必须让 OMLX_MODEL 生效
+            if (stripped.startswith("OMLX_MODEL=")
+                    or stripped.startswith("OMLX_META_MODEL=")
+                    or stripped.startswith("OLLAMA_MODEL=")):
+                lines[i] = new_line + "\n"
+                replaced = True
+                break
+        if not replaced:
+            if lines and not lines[-1].endswith("\n"):
+                lines[-1] += "\n"
+            lines.append(new_line + "\n")
+        new_text = "".join(lines)
+        if new_text == text:
+            return True
+        tmp = env_path.with_suffix(".env.tmp")
+        tmp.write_text(new_text)
+        os.replace(tmp, env_path)
+        return True
+    except Exception as e:
+        print(f"[apply_model_switch] _persist_env_model failed: {e}")
+        return False
+
+
 def apply_model_switch(model):
     """统一模型切换的唯一入口。
 
     前端头部下拉（/api/model/switch）与沈万三设置弹窗（/api/bot-model/set）
-    都走这里，保证三处状态一致：
+    都走这里，保证四处状态一致：
       1. 持久化 bot_config.json —— 机器人进程靠它热切换
       2. 更新 API 进程全局客户端 —— 前端 /api/analyze 立即使用新模型
+      3. 写回 .env 的 OMLX_MODEL —— API 重启后 warmup 仍能换入新模型
     """
     cfg = get_bot_config()
     cfg["model"] = model
     save_bot_config(cfg)
     get_client().set_model(model)
+    _persist_env_model(model)
     return {"ok": True, "model": model}
 
 async def bot_model_get(request):

@@ -1,1 +1,3 @@
-{"model":"Qwen3.6-35B-A3B-4bit"}
+{
+  "model": "MiniMax-M2.7-highspeed"
+}
