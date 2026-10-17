@@ -38,7 +38,10 @@ def test_apply_model_switch_writes_config_and_updates_client():
     with tempfile.TemporaryDirectory() as d:
         cfg = Path(d) / "bot_config.json"
         cfg.write_text(json.dumps({"model": "old-model", "keep": 1}))
+        tmp_env = Path(d) / ".env"
+        tmp_env.write_text("OMLX_MODEL=old-model\nOMLX_FALLBACK_MODELS=Qwen3.5-9B-MLX-4bit\n")
         server.BOT_CONFIG_PATH = cfg
+        server.ENV_FILE_PATH = tmp_env
         server.get_client = lambda: fake
         try:
             result = server.apply_model_switch("new-model")
@@ -48,8 +51,12 @@ def test_apply_model_switch_writes_config_and_updates_client():
             assert saved["keep"] == 1, "切换模型不能丢掉配置里的其它字段"
             assert fake.switches == ["new-model"]
             assert list(Path(d).glob("*.tmp")) == [], "原子写不能留临时文件"
+            # 验证临时 .env 被写了新模型（不是生产 .env）
+            assert "OMLX_MODEL=new-model" in tmp_env.read_text()
+            assert "OMLX_FALLBACK_MODELS" in tmp_env.read_text()
         finally:
             server.BOT_CONFIG_PATH = orig_path
+            server.ENV_FILE_PATH = None
             server.get_client = orig_client
 
 

@@ -4,6 +4,7 @@ import threading
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from typing import Optional
 from datetime import datetime, date
 from starlette.applications import Starlette
 from starlette.datastructures import Headers
@@ -796,6 +797,11 @@ def save_bot_config(cfg):
         os.replace(tmp, BOT_CONFIG_PATH)
 
 
+# 测试钩子：tests/test_model_switch_sync.py 可临时改这个值指向临时 .env，
+# 避免测试污染生产 .env。生产路径走 Path(__file__).parent / ".env"。
+ENV_FILE_PATH: Optional[Path] = None
+
+
 def _persist_env_model(model: str) -> bool:
     """把 model 写回 .env 的 OMLX_MODEL= 行。
 
@@ -804,7 +810,7 @@ def _persist_env_model(model: str) -> bool:
     否则下次重启又把 .env 里的旧值（如 Qwen3.6-35B-A3B-4bit）换入显存。
     其他 key 一律保留原样；缺失 OMLX_MODEL 行则追加到尾部；原子写。
     """
-    env_path = Path(__file__).parent / ".env"
+    env_path = ENV_FILE_PATH if ENV_FILE_PATH is not None else Path(__file__).parent / ".env"
     if not env_path.exists():
         return False
     try:
