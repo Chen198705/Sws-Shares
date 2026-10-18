@@ -37,6 +37,25 @@ def _get_bot_model():
 BOT_MODEL = _get_bot_model()
 
 
+def _sync_global_client(model):
+    """把 ai_client 的全局单例也切到 model。
+
+    analysis_planner.tick() / analyzer / app / scheduler 都走 get_client()，
+    它们不看 main_loop 里的独立 client；不同步的话 Dashboard 改模型只影响
+    主循环，后台分析线程仍用进程启动时的 OMLX_MODEL（例如已下架的 new-model）。
+    """
+    try:
+        import ai_client as _ai
+        gc = _ai.get_client()
+        if gc is not _PROCESS_CLIENT[0]:
+            gc.set_model(model)
+    except Exception as e:
+        print(f"[模型切换] 全局 client 同步失败: {e}")
+
+
+_PROCESS_CLIENT = [None]
+
+
 def sync_bot_model(client, current_config_model):
     """每轮检查 bot_config.json，模型变化时热切换主模型。
 
@@ -47,6 +66,7 @@ def sync_bot_model(client, current_config_model):
     if desired != current_config_model:
         print(f"[模型切换] 配置变更 {current_config_model} → {desired}，热切换主模型")
         client.set_model(desired)
+        _sync_global_client(desired)
     return desired
 from strategy_store import (
     init_schema as init_strategy_schema, load_params,
@@ -55,6 +75,7 @@ from strategy_store import (
     get_account_peak, update_account_peak, get_circuit_break_until, set_circuit_break,
     close_attribution_for_code,
     get_volatility_position_size,
+    get_index_weak_state,
 )
 from industry_map import sector_concentration_ok
 from iteration_engine import run_iteration, iteration_running
@@ -428,11 +449,14 @@ def _log_ai_review(code: str, stype: str, action: str, reason: str,
 
 
 def _should_ai_review(code: str, pnl_pct: float, params) -> bool:
-    """是否需要发起 AI 复评：距上次复评 ≥ 间隔 + 仅在浮亏较大时触发，避免无谓开销。"""
+    """是否需要发起 AI 复评：距上次复评 ≥ 间隔 + 仅在浮亏较大时触发，避免无谓开销。
+    例外：20日回撤 <= -20% 的下跌趋势股不设浮亏门槛——趋势向下时早查早出逃。"""
     interval = max(5, int(getattr(params, "ai_review_interval_min", 30))) * 60
     last = _last_ai_review.get(code)
     if last and (datetime.now() - last).total_seconds() < interval:
         return False
+    if _is_downtrend(code):
+        return True
     return pnl_pct <= -float(getattr(params, "ai_review_min_pnl", -0.03))
 
 
@@ -686,7 +710,7 @@ def sr(x):
 #   中线：RSI<55 且 均线多头 且 MACD 多头动能（金叉或 MACD 状态已转多头）
 #   长线：RSI<65 且 均线多头 且 换手率>1%
 ENTRY_RULES = {
-    "短线": "RSI<40 且 (KDJ金叉 或 量比>1.5)",
+    "短线": "RSI<40 且非放量暴跌(跌>3%且量比>2=恐慌盘) 且 (KDJ金叉 或 量比>1.5)",
     "中线": "RSI<55 且 均线多头 且 MACD金叉/多头",
     "长线": "RSI<65 且 均线多头 且 换手率>1%",
 }
@@ -709,6 +733,12 @@ def validate_entry_conditions(stype, ind, turnover=None):
             vol_ratio = float(ind.get("量比") or 0)
         except (TypeError, ValueError):
             vol_ratio = 0.0
+        try:
+            day_chg = float(ind.get("涨跌幅") or 0.0)
+        except (TypeError, ValueError):
+            day_chg = 0.0
+        if day_chg < -3.0 and vol_ratio > 2.0:
+            fail.append(f"放量下跌{day_chg:.1f}%(量比{vol_ratio:.2f})，疑似恐慌出逃")
         if ind.get("KDJ金叉") != "是" and vol_ratio <= 1.5:
             fail.append(f"KDJ未金叉且量比 {vol_ratio:.2f} 未超 1.5")
     elif stype == "长线":
@@ -856,6 +886,16 @@ def execute_decision(decision, broker):
                      f"硬校验拒买：{'；'.join(entry_reasons)}", stype, 0)
             return
         max_new = total * params.max_total_position - bal["market_value"]
+        # ── 大盘日频下跌闸门：指数弱势时压缩/暂停新开仓预算（不影响存量持仓风控）──
+        weak_state = get_index_weak_state()
+        if weak_state.get("weak"):
+            cap = total * float(getattr(params, "index_weak_max_new_pos", 0.0))
+            if max_new > cap:
+                max_new = cap
+            if max_new <= 0:
+                print(f"  [{code}] 新开仓闸门：{weak_state.get('reason', '指数弱势')}，暂停新开仓")
+                log_scan(code, "hold", 0, price, f"新开仓闸门：{weak_state.get('reason','')}", stype, 0)
+                return
         if max_new <= 0:
             print(f"  [{code}] 总仓位已达上限")
             return
@@ -917,7 +957,24 @@ def execute_decision(decision, broker):
                 break
 
 
+def _is_downtrend(code: str) -> bool:
+    """20 日收盘高点回撤 <= -20% = 深度破位下跌趋势市（数据不可得放行，避免行情抖动卡死）。"""
+    try:
+        hist = get_stock_history(code, days=30)
+        if hist is None or len(hist) < 20:
+            return False
+        cs = hist["close"].tail(20)
+        return float((cs / cs.cummax() - 1).min()) <= -0.20
+    except Exception:
+        return False
+
+
 def run_scan(client, broker, code):
+    # 入场闸门：候选即使已入 TOP10，当前 20d 回撤 <= -20% 也不允许买入（AI 不可用时同样拦截）
+    if _is_downtrend(code):
+        print(f"  [{code}] 下跌趋势闸门：20日回撤<=-20%，拒绝买入")
+        log_scan(code, "hold", 0, 0, "下跌趋势闸门(20日回撤<=-20%)", "中线", 0)
+        return None
     d = analyze_and_decide(client, broker, code)
     if d and d["action"] != "hold":
         d["code"] = code
@@ -1048,6 +1105,15 @@ def startup_warmup(client, broker):
 def main_loop(stop_event):
     current_config_model = _get_bot_model()
     client = OMLXClient(model=current_config_model)
+    # 全局单例与主循环共用实例：analysis_planner / analyzer 等 get_client()
+    # 的调用方跟随 bot_config.json 热切换，不再锁定进程启动时的 .env 模型
+    try:
+        import ai_client as _ai
+        if _ai._client is None:
+            _ai._client = client
+        _PROCESS_CLIENT[0] = client
+    except Exception as e:
+        print(f"[启动] 全局 client 初始化失败: {e}")
     broker = get_broker()
     while not stop_event.is_set():
         if startup_warmup(client, broker):
