@@ -87,8 +87,8 @@ LOG_DIR = Path(__file__).parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 DB_PATH = LOG_DIR / "trading_log.db"
 
-POSITION_CHECK_INTERVAL = 5 * 60
-MARKET_SCAN_INTERVAL = 30 * 60  # 全市场扫描间隔
+POSITION_CHECK_INTERVAL = 10 * 60
+MARKET_SCAN_INTERVAL = 60 * 60  # 全市场扫描间隔
 SCAN_INTERVAL = POSITION_CHECK_INTERVAL  # 兼容别名，实际使用上面的常量
 
 

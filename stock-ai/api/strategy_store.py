@@ -52,9 +52,15 @@ class StrategyParams:
     vol_position_k: float = 0.30      # 仓位 = k / ATR%（日振幅 2% → 仓位 15%）
     vol_position_floor: float = 0.03  # 仓位下限（防止过度集中）
     vol_position_ceiling: float = 0.20  # 仓位上限（防止过度分散）
-    ai_review_interval_min: int = 30  # AI 复评持仓的最小间隔（分钟）
+    ai_review_interval_min: int = 60  # AI 复评持仓的最小间隔（分钟）
     ai_review_min_pnl: float = -0.03  # 仅在浮亏 ≥ 此值时才发起 AI 复评（节省算力）
     ai_sell_streak_threshold: int = 2  # AI 复评连续建议 sell 多少次才真正平仓（反噪声）
+    # ---- 大盘日频下跌闸门（2026-10-16 加入）----
+    # 月度 regime 在连跌行情里钝化（2026-09/10 连续判"震荡市"仍连跌 6 天），
+    # 用指数日频状态做新开仓闸门：弱势暂停新开仓，存量持仓照常止损止盈。
+    index_weak_drawdown: float = -0.03   # 指数 5 日回撤 ≤ 此值 → 弱势
+    index_weak_below_ma20: float = -0.01 # 且收盘低于 MA20 达此幅度 → 弱势
+    index_weak_max_new_pos: float = 0.0  # 弱势时新开仓预算占总资产上限（0=暂停新开仓）
 
 
 def _conn():
@@ -142,6 +148,7 @@ def load_params() -> StrategyParams:
         "vol_min_stop", "vol_max_stop",
         "vol_position_k", "vol_position_floor", "vol_position_ceiling",
         "ai_review_min_pnl",
+        "index_weak_drawdown", "index_weak_below_ma20", "index_weak_max_new_pos",
     }
     int_keys = {"min_confidence", "observation_trades_threshold",
                 "adjust_trades_threshold", "iteration",
@@ -523,6 +530,59 @@ def set_circuit_break(days: int) -> str:
     return until
 
 
+# ============================================================================
+# 大盘日频下跌闸门（新开仓节流）
+#
+# 背景：研究层 regime 是月度口径（MA20/MA60 + 波动率），2026-09/10 连续判
+# "震荡市"但指数连跌 6 天，regime 钝化导致信号层每天都在下跌中继接新仓。
+# 这里用上证指数日频 K 线做一个轻量闸门：5 日回撤 + 低于 MA20 同时成立
+# 视为"指数弱势"，新开仓预算压到 index_weak_max_new_pos；恢复即放行。
+# 只影响买入，不影响存量持仓的止损/止盈/复评。
+# ============================================================================
+
+_INDEX_WEAK_CACHE_TTL = 300.0  # 秒；闸门状态缓存，避免每只候选都拉 K 线
+_index_weak_cache: dict = {}
+
+
+def get_index_weak_state(index_code: str = "000001") -> dict:
+    """返回 {"weak": bool, "drawdown_5d": float, "below_ma20": float, "reason": str}。
+
+    数据不可得时返回 weak=False（放行），与 _is_downtrend 的容错方向一致，
+    避免行情抖动把系统卡死。
+    """
+    import time as _time
+    now = _time.time()
+    cached = _index_weak_cache.get(index_code)
+    if cached and now - cached.get("ts", 0) < _INDEX_WEAK_CACHE_TTL:
+        return cached
+    result = {"weak": False, "drawdown_5d": 0.0, "below_ma20": 0.0,
+              "reason": "数据不可得，放行", "ts": now}
+    try:
+        from market_data import get_stock_history
+        hist = get_stock_history(index_code, days=40)
+        if hist is not None and len(hist) >= 21:
+            close = hist["close"].tail(20)
+            last = float(close.iloc[-1])
+            ma20 = float(close.mean())
+            dd5 = last / float(close.iloc[-6]) - 1.0 if len(close) >= 6 else 0.0
+            below = last / ma20 - 1.0
+            p = load_params()
+            weak = (dd5 <= p.index_weak_drawdown) and (below <= p.index_weak_below_ma20)
+            result = {
+                "weak": bool(weak),
+                "drawdown_5d": round(dd5, 4),
+                "below_ma20": round(below, 4),
+                "reason": ("指数弱势：5日回撤{:.1%}且低于MA20 {:.1%}".format(dd5, below)
+                           if weak else
+                           "指数正常：5日回撤{:.1%}，MA20偏离{:.1%}".format(dd5, below)),
+                "ts": now,
+            }
+    except Exception:
+        pass
+    _index_weak_cache[index_code] = result
+    return result
+
+
 
 
 # ============================================================================
@@ -534,10 +594,10 @@ def set_circuit_break(days: int) -> str:
 
 # 不同 horizon 的 cache 过期时间（秒）：短线短、中线中、长线长
 _ANALYSIS_TTL_SECONDS = {
-    "short": 900,     # 短线 15 分钟
-    "mid": 1800,      # 中线 30 分钟
-    "long": 10800,    # 长线 180 分钟（3 小时，覆盖全交易日）
-    "unknown": 1800,  # 默认 30 分钟
+    "short": 1800,    # 短线 30 分钟
+    "mid": 3600,      # 中线 60 分钟
+    "long": 21600,    # 长线 6 小时
+    "unknown": 3600,  # 默认 60 分钟
 }
 
 

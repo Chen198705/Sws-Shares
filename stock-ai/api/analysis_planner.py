@@ -32,9 +32,9 @@ LOG_DIR.mkdir(exist_ok=True)
 PLANNER_LOG = LOG_DIR / "analysis_planner.log"
 
 # 调度参数
-TICK_INTERVAL_SECONDS = 30      # 每 30 秒 tick 一次
-HOLDING_REFRESH_SECONDS = 300   # 持仓股 5 分钟内不需要重分析
-HOT_REFRESH_SECONDS = 3600      # 候选股 1 小时内不需要重分析（与 TTL 节奏对齐）
+TICK_INTERVAL_SECONDS = 60      # 每 60 秒 tick 一次
+HOLDING_REFRESH_SECONDS = 1800  # 持仓股 30 分钟内不需要重分析
+HOT_REFRESH_SECONDS = 14400     # 候选股 4 小时内不需要重分析（与 TTL 节奏对齐）
 MAX_PER_TICK = 1                # 每 tick 最多处理 1 只，避免并发打爆 oMLX
 
 

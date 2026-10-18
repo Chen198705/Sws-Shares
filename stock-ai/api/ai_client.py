@@ -247,8 +247,12 @@ class OMLXClient:
             print(f"[ai_client] 批量探活 {self.primary_model} 失败，本批直接降级 fallback: {msg}")
             return False
 
-    def ensure_primary(self, max_age: float = 60.0) -> bool:
-        """批量入口调用：缓存探活结果，60 秒内不重复打主模型。"""
+    def ensure_primary(self, max_age: float = 1200.0) -> bool:
+        """批量入口调用：缓存探活结果，20 分钟内不重复打主模型。
+
+        主模型限流/额度耗尽通常不是分钟级恢复的，频繁探活只会白白消耗
+        调用并制造 429 记录；1200 秒后自动重试主模型。
+        """
         now = time.time()
         with self._state_lock:
             cached = self._batch_probe.get(self.primary_model)
