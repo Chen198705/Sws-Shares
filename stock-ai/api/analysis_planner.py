@@ -183,6 +183,12 @@ def tick(broker=None):
         client = get_client()
     except Exception:
         client = OMLXClient()
+    # 批量入口探活：主模型限流/禁用时直接熔断，本批全部走 fallback，
+    # 避免每条任务都先对主模型重试 3 次（2+4+8 秒）拖垮整批。
+    try:
+        client.ensure_primary()
+    except Exception as e:
+        _log(f"批量探活异常（忽略，继续按 fallback 执行）: {e}")
     processed = 0
     while processed < MAX_PER_TICK:
         if not _process_one(client):

@@ -15,6 +15,20 @@ from research_snapshot import value_bp_metric
 from strategy_store import get_research_overlay
 
 
+def _no_proxy_session() -> requests.Session:
+    """免代理的 requests.Session。
+
+    trust_env=False：本客户端的目标是"本机/局域网"的 oMLX-Meta 平台
+    （OMLX_BASE_URL，默认 http://192.168.110.15:8090）。requests 默认会读取
+    HTTP(S)_PROXY 以及 macOS 系统代理，一旦系统代理被改到某个已失效的端口，
+    这里就会整体连不上（2026-10-05 omlx-platform 侧出过同样的事故），
+    所以本地/局域网调用一律直连，不受代理配置影响。
+    """
+    s = requests.Session()
+    s.trust_env = False
+    return s
+
+
 _POLICY_WINDOW_DAYS = 5
 
 # 主模型不可用时的 fallback 链（按顺序尝试）。
@@ -146,7 +160,7 @@ class OMLXClient:
         self.base_url = (base_url or OMLX_BASE_URL).rstrip("/")
         self.api_key = api_key or OMLX_API_KEY
         self.model = model or OMLX_MODEL
-        self.session = requests.Session()
+        self.session = _no_proxy_session()
         self.session.headers.update({"Authorization": f"Bearer {self.api_key}"})
         # 初始化 fallback 链（primary_model 锁定为构造时的 model）
         env_fb = os.getenv(
@@ -167,6 +181,8 @@ class OMLXClient:
         self._alive_revision = 0
         # 历史成功模型（首选用这个，省一次冷启动）
         self._last_good_model = None
+        # 批量任务前的真实探活缓存：model -> (checked_at, ok)
+        self._batch_probe = {}
 
     # ── Fallback chain ─────────────────────────────────────────────
     # 主模型挂掉时自动按 fallback_models 顺序切换；调用方无需感知。
@@ -179,9 +195,10 @@ class OMLXClient:
             for m in [self.primary_model] + list(self.fallback_models):
                 if not m or m in seen:
                     continue
-                # 跳过熔断中的模型（除非是 primary——主模型被指定后仍要试）
+                # 熔断中的模型统一跳过。批量探活（ensure_primary）失败会
+                # 立即写入熔断，本批任务直接走 fallback，不再每条先付重试成本。
                 bad_until = self._bad_models.get(m, 0)
-                if bad_until > now and m != self.primary_model:
+                if bad_until > now:
                     continue
                 seen.append(m)
         return seen
@@ -203,6 +220,44 @@ class OMLXClient:
             return False
         available = {m.get("id") for m in data.get("data", []) if isinstance(m, dict)}
         return any(model in available for model in self._attempts())
+
+    def probe_primary(self, timeout: float = 20.0) -> bool:
+        """批量任务前真实探活：发一个 max_tokens=1 的最小 chat 请求。
+
+        /v1/models 只能证明模型已注册，检测不到额度限流（429）、模型禁用、
+        上游 5xx 等。批量任务先探一次，失败就立即熔断主模型，本批全部
+        直接走 fallback，避免每条任务都先重试主模型 3 次（2+4+8 秒）。
+        """
+        try:
+            self._call(
+                self.primary_model,
+                [{"role": "user", "content": "ping"}],
+                temperature=0.0,
+                max_tokens=1,
+                timeout=timeout,
+            )
+            self._mark_good(self.primary_model)
+            print(f"[ai_client] 批量探活 {self.primary_model} 正常")
+            return True
+        except Exception as e:
+            msg = str(e)[:160]
+            with self._state_lock:
+                self._bad_models[self.primary_model] = time.time() + _BAD_MODEL_COOLDOWN
+                self._bad_streak.pop(self.primary_model, None)
+            print(f"[ai_client] 批量探活 {self.primary_model} 失败，本批直接降级 fallback: {msg}")
+            return False
+
+    def ensure_primary(self, max_age: float = 60.0) -> bool:
+        """批量入口调用：缓存探活结果，60 秒内不重复打主模型。"""
+        now = time.time()
+        with self._state_lock:
+            cached = self._batch_probe.get(self.primary_model)
+        if cached and now - cached[0] < max_age:
+            return cached[1]
+        ok = self.probe_primary()
+        with self._state_lock:
+            self._batch_probe[self.primary_model] = (time.time(), ok)
+        return ok
 
     def _mark_bad(self, model_name: str, transient: bool = False) -> None:
         """累计失败次数，超过阈值才真正熔断（避免单次抖动误杀）。
@@ -269,7 +324,7 @@ class OMLXClient:
 
     def reset_session(self):
         """重置session以应用新的认证信息"""
-        self.session = requests.Session()
+        self.session = _no_proxy_session()
         self.session.headers.update({"Authorization": f"Bearer {self.api_key}"})
 
 
@@ -320,6 +375,13 @@ class OMLXClient:
         5xx / 连接错 / 上游错误 → 同模型重试一次，仍失败再切下一个。
         """
         attempts = self._attempts()
+        if not attempts:
+            # 整条链都在熔断（例如批量探活把 primary、上游又把 fallback 熔断）：
+            # 清掉冷却强制再试一轮，避免永久卡死。
+            with self._state_lock:
+                self._bad_models.clear()
+                self._bad_streak.clear()
+            attempts = self._attempts()
         if not attempts:
             raise RuntimeError("无可用模型：primary_model 与 fallback_models 均为空")
         last_err = None

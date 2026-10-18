@@ -1142,6 +1142,12 @@ def main_loop(stop_event):
     while not stop_event.is_set():
         # 每轮同步 Dashboard 的模型配置，切换后无需重启机器人进程
         current_config_model = sync_bot_model(client, current_config_model)
+        # 本批任务前真实探活：主模型限流/禁用时立即熔断，本批直接走 fallback，
+        # 避免每个候选股都先对主模型重试 3 次（2+4+8 秒）拖垮整轮扫描。
+        try:
+            client.ensure_primary()
+        except Exception as e:
+            print(f"[批量探活] 异常（忽略，继续按 fallback 执行）: {e}")
         ts = datetime.now().strftime("%H:%M")
         if not is_trading_day():
             secs = seconds_to_open()
